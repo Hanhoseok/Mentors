@@ -56,12 +56,6 @@ mentos/
 └── .github/           # 이슈/PR 템플릿, Actions
 ```
 
-각 폴더의 셋업 방법은 해당 폴더의 README를 참고해주세요.
-
-- [Frontend README](./frontend/README.md)
-- [Backend README](./backend/README.md)
-- [AI README](./ai/README.md)
-
 ---
 
 ## 🚀 빠른 시작
@@ -109,49 +103,6 @@ cd ../ai && pip install -r requirements.txt
 | S#07 | 일일 AI 리포트 자동화 | BE/AI |
 | S#08 | 스크랩 및 알림 | FE/BE |
 | S#09~10 | 배포 및 최종 최적화 | 전체 |
-
----
-
-## 🤝 기여 가이드
-
-### 브랜치 전략
-
-```
-main          # 배포 가능한 안정 버전
-└── develop   # 통합 개발 브랜치
-    ├── feature/온보딩-플로우
-    ├── feature/뉴스-크롤러
-    └── fix/차트-렌더링-버그
-```
-
-### 커밋 메시지 컨벤션
-
-```
-<type>: <subject>
-
-[type 종류]
-feat:     새 기능 추가
-fix:      버그 수정
-docs:     문서 변경
-style:    코드 포맷팅
-refactor: 리팩토링
-test:     테스트 추가
-chore:    빌드/설정 변경
-```
-
-**예시:**
-```
-feat: 온보딩 단계별 화면 구현
-fix: 멘토 채팅 메시지 중복 송신 버그 수정
-docs: API 명세에 인증 헤더 추가
-```
-
-### Pull Request 절차
-
-1. `develop`에서 새 브랜치 생성 (`feature/기능명`)
-2. 작업 후 PR 생성
-3. **최소 1명의 리뷰** 후 머지
-4. 머지 후 브랜치 삭제
 
 ---
 
