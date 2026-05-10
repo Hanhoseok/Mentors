@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Mentors 모듈 다이어그램</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    background: #f6f7fb;
+    color: #1f2937;
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 36px; }
+  h1 { font-size: 2.2rem; color: #111827; margin-bottom: 8px; letter-spacing: -0.5px; }
+  .subtitle { color: #6b7280; font-size: 1rem; }
+  section {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  }
+  h2 {
+    font-size: 1.4rem;
+    color: #111827;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 3px solid #e5e7eb;
+    letter-spacing: -0.3px;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    background: #6366f1;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 30px;
+    font-size: 0.95rem;
+    margin-right: 10px;
+  }
+  p.lead { color: #4b5563; margin-bottom: 20px; font-size: 0.97rem; }
+
+  /* 공통 박스 스타일 */
+  .layer-label {
+    display: inline-block;
+    background: #1f2937;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+  .arrow-down {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 1.4rem;
+    margin: 8px 0;
+    line-height: 1;
+  }
+  .arrow-down-small {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 1.1rem;
+    margin: 4px 0;
+    line-height: 1;
+  }
+
+  /* L1 Client */
+  .client-box {
+    background: linear-gradient(135deg, #475569, #64748b);
+    color: white;
+    padding: 14px 24px;
+    border-radius: 10px;
+    text-align: center;
+    width: 220px;
+    margin: 0 auto;
+    font-weight: 600;
+  }
+  .client-box .small { font-size: 0.78rem; opacity: 0.85; font-weight: 400; margin-top: 2px; }
+
+  /* L2 FastAPI */
+  .api-box {
+    background: linear-gradient(135deg, #0ea5e9, #0284c7);
+    color: white;
+    padding: 16px 22px;
+    border-radius: 10px;
+    text-align: center;
+    margin: 0 auto;
+    max-width: 720px;
+    box-shadow: 0 3px 12px rgba(14, 165, 233, 0.2);
+  }
+  .api-box .title { font-weight: 700; font-size: 1.05rem; margin-bottom: 4px; }
+  .api-box .desc { font-size: 0.85rem; opacity: 0.92; }
+
+  /* L3 Features */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 10px;
+    margin: 0 auto;
+  }
+  .feature {
+    border-radius: 10px;
+    padding: 12px 8px;
+    color: white;
+    text-align: center;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.12);
+    font-size: 0.85rem;
+  }
+  .feature .num { font-size: 0.7rem; opacity: 0.85; letter-spacing: 1px; }
+  .feature .name { font-size: 0.95rem; font-weight: 700; margin: 3px 0 4px; }
+  .feature .owner { font-size: 0.72rem; opacity: 0.92; }
+  .feature .files {
+    font-size: 0.68rem;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255,255,255,0.25);
+    line-height: 1.4;
+    opacity: 0.92;
+  }
+  .feature-1 { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+  .feature-2 { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+  .feature-3 { background: linear-gradient(135deg, #db2777, #ec4899); }
+  .feature-4 { background: linear-gradient(135deg, #d97706, #f59e0b); }
+  .feature-5 { background: linear-gradient(135deg, #059669, #10b981); }
+  .feature-6 { background: linear-gradient(135deg, #0891b2, #06b6d4); }
+
+  /* L4 Core */
+  .core-block {
+    background: linear-gradient(180deg, #1e293b, #0f172a);
+    color: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.3);
+  }
+  .core-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .core-row.four { grid-template-columns: repeat(4, 1fr); }
+  .core-row:last-child { margin-bottom: 0; }
+  .core-item {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .core-item .ci-name { font-weight: 700; font-size: 0.92rem; margin-bottom: 3px; }
+  .core-item .ci-desc { font-size: 0.74rem; opacity: 0.7; }
+  .core-item.hub { background: rgba(245, 158, 11, 0.18); border-color: rgba(245, 158, 11, 0.45); }
+  .core-item.hub .ci-name { color: #fbbf24; }
+  .core-contracts {
+    background: rgba(168, 85, 247, 0.14);
+    border: 1px dashed rgba(168, 85, 247, 0.5);
+    border-radius: 8px;
+    padding: 10px 14px;
+    text-align: center;
+    margin-top: 10px;
+    font-size: 0.85rem;
+  }
+  .core-contracts strong { color: #c4b5fd; }
+
+  /* L5 External */
+  .external-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 10px;
+  }
+  .external {
+    background: #f1f5f9;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    font-size: 0.85rem;
+    color: #475569;
+  }
+  .external .name { font-weight: 700; color: #334155; }
+  .external .label { font-size: 0.7rem; opacity: 0.75; margin-top: 2px; }
+
+  /* 의존 방향 룰 박스 */
+  .rule-flow {
+    background: #fef3c7;
+    border-left: 5px solid #f59e0b;
+    border-radius: 10px;
+    padding: 18px 22px;
+    margin-top: 18px;
+  }
+  .rule-flow strong { color: #92400e; }
+  .rule-flow .ban {
+    color: #991b1b;
+    background: #fee2e2;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  /* 통신 패턴 (읽기 / 쓰기) */
+  .comm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .comm-card {
+    border-radius: 12px;
+    padding: 22px;
+    border: 2px solid;
+  }
+  .comm-card.read { background: #ecfdf5; border-color: #6ee7b7; }
+  .comm-card.write { background: #fff7ed; border-color: #fdba74; }
+  .comm-card h3 {
+    font-size: 1.05rem;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .comm-card.read h3 { color: #047857; }
+  .comm-card.write h3 { color: #c2410c; }
+  .comm-flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: 14px 0;
+    flex-wrap: wrap;
+  }
+  .comm-node {
+    background: white;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 2px solid #cbd5e1;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: #334155;
+    min-width: 90px;
+    text-align: center;
+  }
+  .comm-node.hub-read {
+    background: #047857;
+    color: white;
+    border-color: #047857;
+  }
+  .comm-node.hub-write {
+    background: #c2410c;
+    color: white;
+    border-color: #c2410c;
+  }
+  .comm-arrow {
+    color: #64748b;
+    font-weight: 700;
+    font-size: 0.78rem;
+    background: rgba(255,255,255,0.7);
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+  }
+  .comm-card .desc {
+    font-size: 0.88rem;
+    line-height: 1.65;
+    color: #4b5563;
+    margin-top: 12px;
+  }
+  .comm-card .examples {
+    background: rgba(255,255,255,0.7);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    font-size: 0.83rem;
+  }
+  .comm-card .examples strong { display: block; margin-bottom: 4px; color: #374151; }
+  .comm-card .examples code {
+    background: #1e293b;
+    color: #e2e8f0;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+  }
+
+  /* 폴더 트리 */
+  pre.tree {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 22px 24px;
+    border-radius: 10px;
+    font-size: 0.85rem;
+    line-height: 1.65;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  }
+  pre.tree .comment { color: #64748b; }
+  pre.tree .core { color: #fbbf24; }
+  pre.tree .feat { color: #6ee7b7; }
+  pre.tree .name { color: #93c5fd; }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: #64748b;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+  }
+
+  @media (max-width: 768px) {
+    .features-grid { grid-template-columns: repeat(2, 1fr); }
+    .core-row, .core-row.four { grid-template-columns: repeat(2, 1fr); }
+    .external-grid { grid-template-columns: repeat(2, 1fr); }
+    .comm-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Mentors 모듈 다이어그램 <span style="font-size: 0.45em; vertical-align: middle; color: #6366f1; background: #eef2ff; padding: 3px 10px; border-radius: 6px; font-weight: 600; margin-left: 8px;">v1.1</span></h1>
+    <p class="subtitle">계층 구조 · 의존 방향 · 통신 패턴 · 폴더 트리 · 코어 16 모듈</p>
+  </header>
+
+  <!-- 1. 레이어 구조 -->
+  <section>
+    <h2><span class="num">1</span>전체 계층 구조</h2>
+    <p class="lead">위에서 아래로 5개 레이어. 요청은 위에서 내려오고, 데이터는 아래에서 올라옵니다.</p>
+
+    <!-- L1: Client -->
+    <div class="layer-label">L1 · CLIENT</div>
+    <div class="client-box">
+      Client
+      <div class="small">브라우저 / 모바일 앱</div>
+    </div>
+    <div class="arrow-down">▼</div>
+
+    <!-- L2: FastAPI -->
+    <div class="layer-label">L2 · API ENTRY</div>
+    <div class="api-box">
+      <div class="title">FastAPI Application (main.py)</div>
+      <div class="desc">미들웨어 (로깅 · 요청ID · CORS) → JWT 검증 → 6개 동 라우터로 분기</div>
+    </div>
+    <div class="arrow-down">▼</div>
+
+    <!-- L3: Features -->
+    <div class="layer-label">L3 · FEATURES (6개 동, 병렬 모듈)</div>
+    <div class="features-grid">
+      <div class="feature feature-1">
+        <div class="num">1동</div>
+        <div class="name">온보딩</div>
+        <div class="owner">owner 1명</div>
+        <div class="files">router · service<br>models · events</div>
+      </div>
+      <div class="feature feature-2">
+        <div class="num">2동</div>
+        <div class="name">학습</div>
+        <div class="owner">owner 1명</div>
+        <div class="files">멘토 페르소나<br>커리큘럼 · 채팅</div>
+      </div>
+      <div class="feature feature-3">
+        <div class="num">3동</div>
+        <div class="name">성장</div>
+        <div class="owner">owner 1명</div>
+        <div class="files">티어 · 승급시험<br>이해도 게이지</div>
+      </div>
+      <div class="feature feature-4">
+        <div class="num">4동</div>
+        <div class="name">토론</div>
+        <div class="owner">owner 1명</div>
+        <div class="files">투기장 토론<br>core/ai_pipeline 사용</div>
+      </div>
+      <div class="feature feature-5">
+        <div class="num">5동</div>
+        <div class="name">콘텐츠</div>
+        <div class="owner">owner 1명</div>
+        <div class="files">뉴스 · 스크랩<br>ContentReader 구현</div>
+      </div>
+      <div class="feature feature-6">
+        <div class="num">6동</div>
+        <div class="name">일일 리포트</div>
+        <div class="owner">owner 1명</div>
+        <div class="files">cron 트리거<br>EventBus fan-out</div>
+      </div>
+    </div>
+    <div class="arrow-down">▼</div>
+
+    <!-- L4: Core -->
+    <div class="layer-label">L4 · CORE 인프라 (16 모듈 · 코어 owner 단독 1주차 구축)</div>
+    <div class="core-block">
+      <!-- Row 1: 4 허브 -->
+      <div class="core-row four">
+        <div class="core-item hub">
+          <div class="ci-name">UserContextService</div>
+          <div class="ci-desc">관리사무소 — 사용자 상태 읽기 창구</div>
+        </div>
+        <div class="core-item hub">
+          <div class="ci-name">ReadServices ⭐</div>
+          <div class="ci-desc">콘텐츠 읽기 — Protocol + 동 구현 등록 (ADR-014)</div>
+        </div>
+        <div class="core-item hub">
+          <div class="ci-name">EventBus</div>
+          <div class="ci-desc">쪽지함 — 동 간 비동기 메시징 (Pub/Sub)</div>
+        </div>
+        <div class="core-item hub">
+          <div class="ci-name">AI Pipeline ⭐</div>
+          <div class="ci-desc">RAG · Guardrail · Hallucination · Critic (ADR-011)</div>
+        </div>
+      </div>
+      <!-- Row 2: 4 래퍼 -->
+      <div class="core-row four">
+        <div class="core-item">
+          <div class="ci-name">Auth</div>
+          <div class="ci-desc">Google OAuth + JWT</div>
+        </div>
+        <div class="core-item">
+          <div class="ci-name">LLM Client</div>
+          <div class="ci-desc">chat · chat_stream(SSE) · embed</div>
+        </div>
+        <div class="core-item">
+          <div class="ci-name">Vector Store</div>
+          <div class="ci-desc">Chroma 래퍼</div>
+        </div>
+        <div class="core-item">
+          <div class="ci-name">Push ⭐</div>
+          <div class="ci-desc">FCM — device_tokens + send_to_user</div>
+        </div>
+      </div>
+      <!-- Row 3: 3 인프라 -->
+      <div class="core-row">
+        <div class="core-item">
+          <div class="ci-name">DB Session</div>
+          <div class="ci-desc">SQLAlchemy + 트랜잭션</div>
+        </div>
+        <div class="core-item">
+          <div class="ci-name">Cache</div>
+          <div class="ci-desc">Redis 캐시 헬퍼</div>
+        </div>
+        <div class="core-item">
+          <div class="ci-name">Jobs ⭐</div>
+          <div class="ci-desc">APScheduler + jobstore 영속화 (ADR-013)</div>
+        </div>
+      </div>
+      <!-- 기반 -->
+      <div style="font-size: 0.78rem; opacity: 0.7; text-align: center; margin-top: 12px; color: #cbd5e1; padding-top: 10px; border-top: 1px dashed rgba(255,255,255,0.15);">
+        + 기반 4개: <code style="color:#fbbf24; background: transparent;">config</code> · <code style="color:#fbbf24; background: transparent;">logging</code> · <code style="color:#fbbf24; background: transparent;">exceptions</code> · <code style="color:#fbbf24; background: transparent;">middlewares</code>
+      </div>
+      <div class="core-contracts">
+        <strong>Contracts</strong> — events.py · enums.py · ids.py<br>
+        <span style="font-size:0.78rem; opacity:0.85;">모든 동이 import만 하는 공용 언어 사전 · 수정은 PR 리뷰 필수</span>
+      </div>
+      <div style="font-size: 0.72rem; opacity: 0.55; text-align: center; margin-top: 10px; color: #fbbf24;">
+        ⭐ v1.1 신규 모듈
+      </div>
+    </div>
+    <div class="arrow-down">▼</div>
+
+    <!-- L5: External -->
+    <div class="layer-label">L5 · EXTERNAL / DATA</div>
+    <div class="external-grid">
+      <div class="external">
+        <div class="name">Google OAuth</div>
+        <div class="label">외부 인증</div>
+      </div>
+      <div class="external">
+        <div class="name">OpenAI / Anthropic</div>
+        <div class="label">외부 LLM</div>
+      </div>
+      <div class="external">
+        <div class="name">Chroma</div>
+        <div class="label">벡터 DB</div>
+      </div>
+      <div class="external">
+        <div class="name">Redis</div>
+        <div class="label">캐시 · Pub/Sub</div>
+      </div>
+      <div class="external">
+        <div class="name">PostgreSQL</div>
+        <div class="label">단일 DB · 테이블별 owner</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 의존 방향 -->
+  <section>
+    <h2><span class="num">2</span>의존 방향 — "위에서 아래로만"</h2>
+    <p class="lead">화살표는 한 방향뿐입니다. 코어가 동에 의존하면 순환이 생기고, 동끼리 직접 의존하면 충돌이 폭발합니다.</p>
+
+    <div class="rule-flow">
+      <p style="margin-bottom: 10px;"><strong>허용</strong> — Client → FastAPI → 동 → 코어 서비스 → 외부/DB</p>
+      <p style="margin-bottom: 10px;">
+        <span class="ban">금지 1</span> &nbsp; 동 → 코어가 그 동을 알고 있음 (코어는 동을 모름)
+      </p>
+      <p style="margin-bottom: 10px;">
+        <span class="ban">금지 2</span> &nbsp; 동 → 다른 동을 직접 import (옆 동의 service · models는 절대 import 안 함)
+      </p>
+      <p>
+        <span class="ban">금지 3</span> &nbsp; 동 → 다른 동의 DB 테이블을 직접 SELECT (UserContextService 통과 필수)
+      </p>
+    </div>
+
+    <p style="margin-top: 16px; font-size: 0.92rem; color: #6b7280;">
+      이 규칙 덕분에: ① 한 동을 빼도 시스템이 돌아감 (예: 토론 동 잠시 끄기 가능) ② 한 동만 따로 테스트 가능 ③ 6명이 동시에 PR 올려도 머지 충돌이 거의 없음
+    </p>
+  </section>
+
+  <!-- 3. 통신 패턴 -->
+  <section>
+    <h2><span class="num">3</span>동 간 통신 패턴 — 읽기 vs 쓰기</h2>
+    <p class="lead">옆 동의 데이터가 필요할 때, 동기적으로 읽을 건지(관리사무소), 비동기적으로 쓰기 요청할 건지(쪽지함) 구분합니다.</p>
+
+    <div class="comm-grid">
+      <!-- 읽기 -->
+      <div class="comm-card read">
+        <h3>읽기 (동기) — 두 갈래 경로</h3>
+
+        <div style="margin-bottom: 14px;">
+          <div style="font-size: 0.82rem; font-weight: 700; color: #047857; margin-bottom: 6px;">① 사용자 상태 → UserContextService</div>
+          <div class="comm-flow">
+            <div class="comm-node">학습 동</div>
+            <div class="comm-arrow">호출</div>
+            <div class="comm-node hub-read">UserContextService</div>
+            <div class="comm-arrow">조회</div>
+            <div class="comm-node">DB</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size: 0.82rem; font-weight: 700; color: #047857; margin-bottom: 6px;">② 다른 동 콘텐츠 → ReadServices Protocol ⭐</div>
+          <div class="comm-flow">
+            <div class="comm-node">일일리포트 동</div>
+            <div class="comm-arrow">Protocol</div>
+            <div class="comm-node hub-read">ReadServices</div>
+            <div class="comm-arrow">위임</div>
+            <div class="comm-node">콘텐츠 동 구현</div>
+          </div>
+        </div>
+
+        <p class="desc">
+          ①은 티어·관심사 같은 <strong>사용자 본질 상태</strong>. ②는 뉴스·시장지표 같은 <strong>다른 동의 도메인 콘텐츠</strong>. 어느 경우든 다른 동 테이블을 직접 SELECT하지 않습니다.
+        </p>
+        <div class="examples">
+          <strong>예시</strong>
+          ① <code>ctx = await user_context.get_for_mentor_chat(user_id)</code><br>
+          ② <code>news = await content_reader.get_today_news_for_user(user_id, top_k=3)</code>
+        </div>
+      </div>
+
+      <!-- 쓰기 -->
+      <div class="comm-card write">
+        <h3>쓰기 (비동기) — 쪽지함 패턴</h3>
+        <div class="comm-flow">
+          <div class="comm-node">학습 동</div>
+          <div class="comm-arrow">발행</div>
+          <div class="comm-node hub-write">EventBus</div>
+          <div class="comm-arrow">구독·처리</div>
+          <div class="comm-node">성장 동</div>
+        </div>
+        <p class="desc">
+          학습 동이 "사용자가 개념 퀴즈를 통과했다"는 사실을 성장 동에 알리고 싶을 때, 성장 동의 테이블을 직접 UPDATE하지 않고 이벤트를 발행합니다. 옆 동이 자기 테이블을 어떻게 바꿀지는 자기가 결정.
+        </p>
+        <div class="examples">
+          <strong>예시</strong>
+          학습 동: <code>ConceptMasteredEvent</code> 발행 →<br>
+          성장 동이 구독: 자기 테이블의 진척도 컬럼을 직접 +1 업데이트
+        </div>
+
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px dashed rgba(194, 65, 12, 0.3);">
+          <div style="font-size: 0.82rem; font-weight: 700; color: #c2410c; margin-bottom: 6px;">스케줄 트리거 → fan-out ⭐</div>
+          <div class="comm-flow">
+            <div class="comm-node">Jobs (cron)</div>
+            <div class="comm-arrow">트리거</div>
+            <div class="comm-node">동 task</div>
+            <div class="comm-arrow">발행</div>
+            <div class="comm-node hub-write">EventBus</div>
+          </div>
+          <div style="font-size: 0.78rem; color: #4b5563; margin-top: 8px;">
+            예: 일일리포트 cron @ 매일 8시 → 사용자 N명에게 <code>DailyReportRequestedEvent</code> fan-out
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. 폴더 트리 -->
+  <section>
+    <h2><span class="num">4</span>실제 폴더 구조</h2>
+    <p class="lead">"폴더 = owner" 원칙. 자기 폴더만 수정하면 git 충돌이 안 납니다.</p>
+<pre class="tree">backend/
+├── <span class="core">core/</span>                          <span class="comment"># 👤 코어 owner (1주차 단독 구축) · 16 모듈</span>
+│   ├── config.py                  <span class="comment"># .env 로드 · 검증</span>
+│   ├── logging/                   <span class="comment"># 구조화 로깅</span>
+│   ├── exceptions/                <span class="comment"># 공용 도메인 예외</span>
+│   ├── middlewares/               <span class="comment"># 요청ID · CORS · 로깅</span>
+│   ├── db/                        <span class="comment"># SQLAlchemy 엔진 · 세션 · 트랜잭션</span>
+│   ├── cache/                     <span class="comment"># Redis 캐시 헬퍼</span>
+│   ├── auth/                      <span class="comment"># Google OAuth + JWT</span>
+│   ├── event_bus/                 <span class="comment"># Redis Pub/Sub 래퍼 (쪽지함)</span>
+│   ├── llm/                       <span class="comment"># chat · chat_stream(SSE) · embed</span>
+│   ├── vector_store/              <span class="comment"># Chroma 래퍼</span>
+│   ├── ai_pipeline/               <span class="comment"># ⭐ v1.1 신규 — RAG · Guardrail · Hallucination · Critic</span>
+│   ├── user_context/              <span class="comment"># 관리사무소 (사용자 상태 읽기)</span>
+│   ├── read_services/             <span class="comment"># ⭐ v1.1 신규 — 콘텐츠 read Protocol</span>
+│   ├── jobs/                      <span class="comment"># ⭐ v1.1 신규 — APScheduler</span>
+│   ├── push/                      <span class="comment"># ⭐ v1.1 신규 — FCM 푸시</span>
+│   └── contracts/                 <span class="comment"># ⚠️ 공용 사전 — 수정 PR 리뷰 필수</span>
+│       ├── events.py              <span class="comment"># 모든 이벤트 정의</span>
+│       ├── enums.py               <span class="comment"># Tier · MessageRole 등</span>
+│       └── ids.py                 <span class="comment"># UserId · MentorId NewType</span>
+│
+├── <span class="feat">features/</span>
+│   ├── <span class="name">onboarding/</span>                <span class="comment"># 1동</span>
+│   │   ├── router.py              <span class="comment"># /api/onboarding/* 엔드포인트</span>
+│   │   ├── service.py             <span class="comment"># 비즈니스 로직</span>
+│   │   ├── models.py              <span class="comment"># 자기 테이블만</span>
+│   │   ├── schemas.py             <span class="comment"># 요청·응답 Pydantic</span>
+│   │   ├── handlers.py            <span class="comment"># 이벤트 핸들러 (선택)</span>
+│   │   ├── jobs.py                <span class="comment"># ⭐ APScheduler task (선택)</span>
+│   │   └── read_service.py        <span class="comment"># ⭐ ReadServices Protocol 구현 (선택)</span>
+│   │
+│   ├── <span class="name">learning/</span>                  <span class="comment"># 2동 — 멘토 페르소나 · CurriculumService · 채팅 오케스트레이션</span>
+│   ├── <span class="name">growth/</span>                    <span class="comment"># 3동 — 티어 · 승급시험 · 이해도 게이지</span>
+│   ├── <span class="name">debate/</span>                    <span class="comment"># 4동 — core/ai_pipeline 직접 사용 (학습 동 import 금지)</span>
+│   ├── <span class="name">content/</span>                   <span class="comment"># 5동 — 뉴스·스크랩 / ContentReader 구현·등록</span>
+│   └── <span class="name">daily_report/</span>              <span class="comment"># 6동 — APScheduler cron + ContentReader 호출</span>
+│
+├── migrations/                    <span class="comment"># 단일 폴더, 파일명으로 충돌 방지</span>
+│   └── versions/
+│       ├── 20260512_core_init_users.py
+│       ├── 20260512_core_init_device_tokens.py    <span class="comment"># ⭐ FCM</span>
+│       ├── 20260513_learning_create_chat_messages.py
+│       └── 20260513_growth_create_tier_states.py
+│
+├── tests/
+├── docker/
+├── docker-compose.yml
+├── AGENTS.md                      <span class="comment"># ⭐ v1.1 신규 — 동 owner + AI 에이전트 운영 룰</span>
+└── main.py                        <span class="comment"># FastAPI 앱 진입점</span></pre>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot" style="background:#fbbf24"></div>core/ — 코어 owner 단독 작업</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#6ee7b7"></div>features/ — 6명이 자기 동 폴더만 수정</div>
+      <div class="legend-item"><div class="legend-dot" style="background:#93c5fd"></div>각 동 폴더 = owner 1명</div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
