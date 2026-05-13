@@ -1,0 +1,83 @@
+[project]
+name = "mentors-backend"
+version = "0.1.0"
+description = "Mentors — AI investment mentor service backend"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # FastAPI stack
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # DB
+    "sqlalchemy[asyncio]>=2.0",
+    "alembic>=1.14",
+    "asyncpg>=0.30",
+    # Cache / messaging
+    "redis>=5.2",
+    # Vector store
+    "chromadb>=0.5",
+    # LLM providers
+    "openai>=1.55",
+    "anthropic>=0.40",
+    "tiktoken>=0.8",
+    # Auth
+    "python-jose[cryptography]>=3.3",
+    "httpx>=0.28",
+    # Scheduling (ADR-013)
+    "apscheduler>=3.10",
+    # SSE streaming (ADR-012)
+    "sse-starlette>=2.1",
+    # Push (FCM)
+    "firebase-admin>=6.6",
+    # Logging
+    "python-json-logger>=2.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.params.Depends",
+    "fastapi.Query",
+    "fastapi.params.Query",
+    "fastapi.Path",
+    "fastapi.params.Path",
+    "fastapi.Header",
+    "fastapi.params.Header",
+    "fastapi.Body",
+    "fastapi.params.Body",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+exclude = ["migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["chromadb.*", "apscheduler.*", "firebase_admin.*", "jose.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Mentors 1주차 인수인계</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    background: #f6f7fb;
+    color: #1f2937;
+    line-height: 1.6;
+    padding: 40px 20px;
+  }
+  .container { max-width: 1200px; margin: 0 auto; }
+
+  header { text-align: center; margin-bottom: 36px; }
+  h1 { font-size: 2.2rem; color: #111827; margin-bottom: 8px; letter-spacing: -0.5px; }
+  h1 .badge {
+    font-size: 0.45em;
+    vertical-align: middle;
+    color: #047857;
+    background: #ecfdf5;
+    padding: 3px 12px;
+    border-radius: 6px;
+    font-weight: 600;
+    margin-left: 8px;
+    border: 1px solid #6ee7b7;
+  }
+  .subtitle { color: #6b7280; font-size: 1.05rem; }
+
+  section {
+    background: white;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+  }
+  h2 {
+    font-size: 1.4rem;
+    color: #111827;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 3px solid #e5e7eb;
+    letter-spacing: -0.3px;
+  }
+  h2 .num {
+    display: inline-block;
+    width: 30px;
+    height: 30px;
+    background: #6366f1;
+    color: white;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 30px;
+    font-size: 0.95rem;
+    margin-right: 10px;
+  }
+  h3 { font-size: 1.1rem; margin-bottom: 12px; color: #1f2937; }
+  p.lead { color: #4b5563; margin-bottom: 20px; font-size: 0.97rem; }
+
+  /* 대시보드 통계 */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 14px;
+    margin-bottom: 8px;
+  }
+  .stat-card {
+    background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+    border-radius: 12px;
+    padding: 18px 14px;
+    text-align: center;
+    border: 1px solid #d1d5db;
+  }
+  .stat-card.green { background: linear-gradient(135deg, #ecfdf5, #d1fae5); border-color: #6ee7b7; }
+  .stat-card .value {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #047857;
+    letter-spacing: -1px;
+  }
+  .stat-card.gray .value { color: #4b5563; }
+  .stat-card .label {
+    font-size: 0.78rem;
+    color: #6b7280;
+    margin-top: 4px;
+    font-weight: 500;
+  }
+
+  /* 4종 결과물 카드 */
+  .deliverables {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .deliverable {
+    background: white;
+    border: 2px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 18px;
+    transition: transform 0.15s, border-color 0.15s;
+  }
+  .deliverable:hover { transform: translateY(-2px); border-color: #6366f1; }
+  .deliverable .icon {
+    font-size: 1.6rem;
+    margin-bottom: 8px;
+  }
+  .deliverable .title { font-weight: 700; color: #111827; margin-bottom: 4px; }
+  .deliverable .file {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 0.78rem;
+    color: #6366f1;
+    background: #eef2ff;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    display: inline-block;
+  }
+  .deliverable .desc {
+    font-size: 0.85rem;
+    color: #6b7280;
+    line-height: 1.5;
+  }
+
+  /* 5분 셋업 */
+  .setup-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+  }
+  .setup-step {
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 0.82rem;
+    position: relative;
+    line-height: 1.65;
+  }
+  .setup-step .step-num {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    background: #6366f1;
+    color: white;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 26px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.4);
+  }
+  .setup-step .step-title {
+    color: #fbbf24;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .setup-step code { color: #6ee7b7; }
+  .setup-step .comment { color: #64748b; font-style: italic; }
+
+  /* 16 모듈 그리드 */
+  .modules-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .module-card {
+    background: linear-gradient(180deg, #1e293b, #0f172a);
+    color: white;
+    border-radius: 8px;
+    padding: 12px 14px;
+    border: 1px solid #334155;
+    position: relative;
+  }
+  .module-card.hub { border-color: #fbbf24; }
+  .module-card.new { border-color: #10b981; }
+  .module-card.new::after {
+    content: "v1.1";
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: #10b981;
+    color: white;
+    font-size: 0.6rem;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 700;
+  }
+  .module-card .num {
+    font-size: 0.65rem;
+    color: #94a3b8;
+    font-weight: 700;
+  }
+  .module-card .name {
+    font-weight: 700;
+    font-size: 0.92rem;
+    margin: 3px 0 6px;
+    color: #fbbf24;
+  }
+  .module-card.hub .name { color: #fbbf24; }
+  .module-card.new .name { color: #6ee7b7; }
+  .module-card .desc {
+    font-size: 0.72rem;
+    line-height: 1.45;
+    color: #cbd5e1;
+  }
+
+  /* 시범 PR 흐름도 */
+  .flow-diagram {
+    background: linear-gradient(180deg, #fff7ed, #fef3c7);
+    border: 2px solid #fbbf24;
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .flow-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px dashed rgba(217, 119, 6, 0.3);
+  }
+  .flow-step:last-child { border-bottom: none; padding-bottom: 0; margin-bottom: 0; }
+  .flow-step .step-icon {
+    background: #f59e0b;
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 32px;
+    font-weight: 700;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+  }
+  .flow-step .body { flex: 1; }
+  .flow-step .body .title {
+    font-weight: 700;
+    color: #92400e;
+    font-size: 0.95rem;
+    margin-bottom: 4px;
+  }
+  .flow-step .body .detail {
+    font-size: 0.85rem;
+    color: #78350f;
+    line-height: 1.55;
+  }
+  .flow-step code {
+    background: #1e293b;
+    color: #fbbf24;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 0.78rem;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  }
+  .flow-step .modules {
+    margin-top: 6px;
+    font-size: 0.75rem;
+    color: #92400e;
+    font-style: italic;
+  }
+  .flow-step .modules .mod {
+    background: #fef3c7;
+    border: 1px solid #fbbf24;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-right: 4px;
+    font-style: normal;
+    color: #92400e;
+    font-weight: 600;
+  }
+
+  /* 동 owner 시작 가이드 */
+  .owners-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+    gap: 16px;
+  }
+  .owner-card {
+    border-radius: 12px;
+    padding: 20px;
+    color: white;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.12);
+  }
+  .owner-card .header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .owner-card .num {
+    background: rgba(255,255,255,0.25);
+    border-radius: 6px;
+    padding: 2px 10px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+  .owner-card .dong-name {
+    font-size: 1.2rem;
+    font-weight: 700;
+  }
+  .owner-card .fr {
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.18);
+    padding: 1px 7px;
+    border-radius: 4px;
+    margin-left: auto;
+  }
+  .owner-card .responsibility {
+    font-size: 0.85rem;
+    line-height: 1.55;
+    margin-bottom: 12px;
+    background: rgba(255,255,255,0.13);
+    padding: 8px 11px;
+    border-radius: 6px;
+  }
+  .owner-card .checklist {
+    list-style: none;
+    margin-bottom: 12px;
+  }
+  .owner-card .checklist li {
+    padding-left: 22px;
+    position: relative;
+    font-size: 0.83rem;
+    line-height: 1.6;
+    margin-bottom: 4px;
+  }
+  .owner-card .checklist li::before {
+    content: "□";
+    position: absolute;
+    left: 4px;
+    color: rgba(255,255,255,0.7);
+  }
+  .owner-card .uses {
+    font-size: 0.75rem;
+    background: rgba(255,255,255,0.13);
+    padding: 8px 10px;
+    border-radius: 6px;
+    line-height: 1.5;
+  }
+  .owner-card .uses strong { font-weight: 700; }
+  .owner-card .warn {
+    margin-top: 8px;
+    font-size: 0.78rem;
+    background: rgba(220, 38, 38, 0.25);
+    border: 1px solid rgba(252, 165, 165, 0.5);
+    padding: 7px 10px;
+    border-radius: 6px;
+  }
+  .owner-1 { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+  .owner-2 { background: linear-gradient(135deg, #7c3aed, #a855f7); }
+  .owner-3 { background: linear-gradient(135deg, #db2777, #ec4899); }
+  .owner-4 { background: linear-gradient(135deg, #d97706, #f59e0b); }
+  .owner-5 { background: linear-gradient(135deg, #059669, #10b981); }
+  .owner-6 { background: linear-gradient(135deg, #0891b2, #06b6d4); }
+
+  /* Cookbook 패턴 */
+  .cookbook-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    gap: 14px;
+  }
+  .cookbook-card {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .cookbook-card .title {
+    font-weight: 700;
+    color: #1f2937;
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+  }
+  .cookbook-card .desc {
+    font-size: 0.82rem;
+    color: #6b7280;
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+  .cookbook-card pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 0.74rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  }
+  .cookbook-card pre .kw { color: #f472b6; }
+  .cookbook-card pre .imp { color: #6ee7b7; }
+  .cookbook-card pre .com { color: #64748b; font-style: italic; }
+  .cookbook-card pre .str { color: #fbbf24; }
+
+  /* TODO 목록 */
+  .todo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 14px;
+  }
+  .todo-card {
+    background: #f9fafb;
+    border-left: 4px solid #6366f1;
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .todo-card.priority { border-left-color: #dc2626; }
+  .todo-card.fe { border-left-color: #0891b2; }
+  .todo-card .title { font-weight: 700; color: #1f2937; margin-bottom: 8px; font-size: 0.95rem; }
+  .todo-card ul { list-style: none; }
+  .todo-card li {
+    padding-left: 18px;
+    position: relative;
+    font-size: 0.83rem;
+    color: #4b5563;
+    margin-bottom: 4px;
+    line-height: 1.55;
+  }
+  .todo-card li::before {
+    content: "□";
+    position: absolute;
+    left: 0;
+    color: #9ca3af;
+  }
+
+  /* 룰 카드 */
+  .rules {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .rule-card {
+    border-radius: 10px;
+    padding: 16px;
+    border: 2px solid;
+  }
+  .rule-card.allow { background: #ecfdf5; border-color: #6ee7b7; }
+  .rule-card.forbid { background: #fee2e2; border-color: #fca5a5; }
+  .rule-card .head {
+    font-weight: 700;
+    margin-bottom: 10px;
+    font-size: 0.95rem;
+  }
+  .rule-card.allow .head { color: #047857; }
+  .rule-card.forbid .head { color: #991b1b; }
+  .rule-card pre {
+    background: #1f2937;
+    color: #e5e7eb;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    overflow-x: auto;
+  }
+  .rule-card pre .com { color: #64748b; }
+  .rule-card pre .ok { color: #6ee7b7; }
+  .rule-card pre .bad { color: #fca5a5; }
+
+  @media (max-width: 768px) {
+    .modules-grid { grid-template-columns: repeat(2, 1fr); }
+    .rules { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Mentors 1주차 인수인계 <span class="badge">완료 · 2026-05-10</span></h1>
+    <p class="subtitle">코어 인프라 16 모듈 + 6개 동 stub + 시범 PR + tests · 5명 owner 시작 가이드</p>
+  </header>
+
+  <!-- 1. 결과물 4종 -->
+  <section>
+    <h2><span class="num">1</span>결과물 4종</h2>
+    <p class="lead">합류한 owner는 이 4개를 순서대로 본다 — 시각자료(여기) → 운영룰 → 코드 → 명세서.</p>
+    <div class="deliverables">
+      <a href="인수인계_시각자료.html" class="deliverable" style="text-decoration: none; color: inherit;">
+        <div class="icon">🗂️</div>
+        <div class="title">인수인계 시각자료</div>
+        <div class="file">인수인계_시각자료.html</div>
+        <div class="desc">본 문서. 진행 상황 대시보드 · 동별 시작 가이드 · cookbook · 시범 PR 흐름.</div>
+      </a>
+      <a href="../AGENTS.md" class="deliverable" style="text-decoration: none; color: inherit;">
+        <div class="icon">📋</div>
+        <div class="title">운영 룰 (AGENTS.md)</div>
+        <div class="file">AGENTS.md</div>
+        <div class="desc">매 작업 시작 시 read. §0 자동 셋업 · Import 룰 · cookbook · PR 컨벤션 · AI 에이전트 지시.</div>
+      </a>
+      <a href="모듈_다이어그램.html" class="deliverable" style="text-decoration: none; color: inherit;">
+        <div class="icon">🏗️</div>
+        <div class="title">모듈 다이어그램 v1.1</div>
+        <div class="file">docs/모듈_다이어그램.html</div>
+        <div class="desc">5계층 아키텍처 · 통신 패턴 · 폴더 트리. 처음 보는 사람을 위한 시각화.</div>
+      </a>
+      <a href="코어인프라_설계명세서.md" class="deliverable" style="text-decoration: none; color: inherit;">
+        <div class="icon">📖</div>
+        <div class="title">설계 명세서 v1.1</div>
+        <div class="file">docs/코어인프라_설계명세서.md</div>
+        <div class="desc">진실의 원천. 16 모듈 인터페이스 · 14 ADR · 환경변수·이벤트·푸시·Read 카탈로그.</div>
+      </a>
+      <a href="1주차_인수인계서.md" class="deliverable" style="text-decoration: none; color: inherit;">
+        <div class="icon">📑</div>
+        <div class="title">텍스트 인수인계서</div>
+        <div class="file">docs/1주차_인수인계서.md</div>
+        <div class="desc">본 시각자료의 텍스트 버전. 검색·복사 편한 reference.</div>
+      </a>
+      <a href="../" class="deliverable" style="text-decoration: none; color: inherit;">
+        <div class="icon">⚙️</div>
+        <div class="title">실행 가능한 코드</div>
+        <div class="file">repo root</div>
+        <div class="desc">Python 3.12 · FastAPI · 79 source files · ruff·mypy·pytest 모두 통과.</div>
+      </a>
+    </div>
+  </section>
+
+  <!-- 2. 검증 대시보드 -->
+  <section>
+    <h2><span class="num">2</span>검증 대시보드</h2>
+    <p class="lead">모든 정적 검증 통과. 외부 키 없이도 부팅·SSE·이벤트·스케줄·푸시 모두 graceful 동작.</p>
+    <div class="stats-grid">
+      <div class="stat-card green">
+        <div class="value">16</div>
+        <div class="label">코어 모듈</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">6</div>
+        <div class="label">동 stub</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">79</div>
+        <div class="label">Python 파일</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">18</div>
+        <div class="label">API 라우트</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">12</div>
+        <div class="label">이벤트 타입</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">14</div>
+        <div class="label">pytest 통과</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">2</div>
+        <div class="label">마이그레이션</div>
+      </div>
+      <div class="stat-card green">
+        <div class="value">0</div>
+        <div class="label">mypy 에러</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. 5분 셋업 -->
+  <section>
+    <h2><span class="num">3</span>5분 셋업 (fresh clone)</h2>
+    <p class="lead">키가 하나도 없어도 앱은 부팅한다. OAuth/LLM/FCM은 키가 들어가는 즉시 활성화.</p>
+    <div class="setup-steps">
+      <div class="setup-step">
+        <span class="step-num">1</span>
+        <div class="step-title">의존성</div>
+        cd backend<br>
+        uv sync
+      </div>
+      <div class="setup-step">
+        <span class="step-num">2</span>
+        <div class="step-title">컨테이너</div>
+        docker compose up -d<br>
+        <span class="comment"># Postgres · Redis · Chroma</span>
+      </div>
+      <div class="setup-step">
+        <span class="step-num">3</span>
+        <div class="step-title">환경변수</div>
+        copy .env.example .env<br>
+        <span class="comment"># JWT_SECRET 만 채워도 부팅 OK</span>
+      </div>
+      <div class="setup-step">
+        <span class="step-num">4</span>
+        <div class="step-title">마이그레이션</div>
+        uv run alembic upgrade head
+      </div>
+      <div class="setup-step">
+        <span class="step-num">5</span>
+        <div class="step-title">실행</div>
+        uv run uvicorn main:app --reload
+      </div>
+      <div class="setup-step">
+        <span class="step-num">6</span>
+        <div class="step-title">확인</div>
+        curl localhost:8000/health<br>
+        <span class="comment"># &gt; {"status":"ok"}</span><br>
+        <span class="comment"># 브라우저: /docs</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. 16 코어 모듈 -->
+  <section>
+    <h2><span class="num">4</span>16 코어 모듈 — 무엇이 들어 있나</h2>
+    <p class="lead">ADR-002에 따라 동 owner는 이 모듈들을 <strong>읽기·import만</strong> 한다. 변경은 코어 owner PR.</p>
+    <div class="modules-grid">
+      <div class="module-card"><div class="num">1 · 기반</div><div class="name">config</div><div class="desc">.env 로드 · 단일 settings</div></div>
+      <div class="module-card"><div class="num">2 · 기반</div><div class="name">logging</div><div class="desc">JSON · request_id ContextVar</div></div>
+      <div class="module-card"><div class="num">3 · 기반</div><div class="name">exceptions</div><div class="desc">DomainError 6종 + 핸들러</div></div>
+      <div class="module-card"><div class="num">4 · 기반</div><div class="name">middlewares</div><div class="desc">RequestId · Logging · CORS</div></div>
+      <div class="module-card"><div class="num">5</div><div class="name">db</div><div class="desc">async SQLAlchemy 2.0 · transaction</div></div>
+      <div class="module-card"><div class="num">6</div><div class="name">cache</div><div class="desc">Redis 헬퍼 · 네임스페이스</div></div>
+      <div class="module-card"><div class="num">7</div><div class="name">auth</div><div class="desc">Google OAuth · JWT · users 테이블</div></div>
+      <div class="module-card hub"><div class="num">8 · 허브</div><div class="name">contracts</div><div class="desc">12 events · 8 IDs · 4 enums</div></div>
+      <div class="module-card hub"><div class="num">9 · 허브</div><div class="name">event_bus</div><div class="desc">Pub/Sub · 멱등 · graceful</div></div>
+      <div class="module-card"><div class="num">10</div><div class="name">llm</div><div class="desc">OpenAI · Anthropic · SSE</div></div>
+      <div class="module-card"><div class="num">11</div><div class="name">vector_store</div><div class="desc">Chroma 래퍼</div></div>
+      <div class="module-card hub new"><div class="num">12 · 허브</div><div class="name">ai_pipeline</div><div class="desc">RAG · Guardrail · Critic 등 6개</div></div>
+      <div class="module-card hub"><div class="num">13 · 허브</div><div class="name">user_context</div><div class="desc">사용자 상태 read 단일창구</div></div>
+      <div class="module-card hub new"><div class="num">14 · 허브</div><div class="name">read_services</div><div class="desc">도메인 콘텐츠 Protocol · Lazy proxy</div></div>
+      <div class="module-card new"><div class="num">15</div><div class="name">jobs</div><div class="desc">APScheduler · @cron · @interval</div></div>
+      <div class="module-card new"><div class="num">16</div><div class="name">push</div><div class="desc">FCM · device_tokens · /me/devices</div></div>
+    </div>
+  </section>
+
+  <!-- 5. 시범 PR — 일일리포트 -->
+  <section>
+    <h2><span class="num">5</span>시범 PR — 일일리포트 (모범 사례)</h2>
+    <p class="lead"><code>features/daily_report/</code>는 <strong>한 동이 코어 모듈 9개와 어떻게 협조하는가</strong>의 모범. 5명 owner는 자기 동을 짤 때 이 흐름을 참고하면 된다.</p>
+    <div class="flow-diagram">
+      <div class="flow-step">
+        <div class="step-icon">①</div>
+        <div class="body">
+          <div class="title">매일 오전 8시 — APScheduler cron 발동</div>
+          <div class="detail"><code>features/daily_report/jobs.py</code>의 <code>@cron("0 8 * * *", id="daily_report_dispatch")</code>가 등록한 작업이 실행된다.</div>
+          <div class="modules"><span class="mod">core/jobs</span> <span class="mod">core/db</span></div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-icon">②</div>
+        <div class="body">
+          <div class="title">사용자 N명에게 fan-out 이벤트 발행</div>
+          <div class="detail">활성 사용자 목록을 SELECT 한 뒤, 각 사용자별로 <code>DailyReportRequestedEvent</code>를 EventBus에 publish.</div>
+          <div class="modules"><span class="mod">core/event_bus</span> <span class="mod">core/contracts</span></div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-icon">③</div>
+        <div class="body">
+          <div class="title">EventBus → handlers.on_daily_report_requested 호출 (사용자 1명씩)</div>
+          <div class="detail">멱등성 키(event_id)를 처리 기록 테이블에 UNIQUE 저장하여, 같은 이벤트가 두 번 와도 한 번만 생성되게 보장.</div>
+          <div class="modules"><span class="mod">core/event_bus</span></div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-icon">④</div>
+        <div class="body">
+          <div class="title">사용자 컨텍스트 + 오늘 뉴스 조회</div>
+          <div class="detail"><code>user_context.get_for_daily_report(uid)</code>로 닉네임·티어 조회. <code>content_reader.get_today_news_for_user(uid, top_k=3)</code>로 멘토 전략 기준 필터링된 뉴스 3건.</div>
+          <div class="modules"><span class="mod">core/user_context</span> <span class="mod">core/read_services</span></div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-icon">⑤</div>
+        <div class="body">
+          <div class="title">LLM으로 리포트 본문 생성 → DB 저장</div>
+          <div class="detail"><code>llm.chat(...)</code>로 사용자 티어 맞춤 리포트 생성. <code>daily_reports</code> 테이블에 저장. (현재 TODO — 시범 PR이 채울 다음 단계)</div>
+          <div class="modules"><span class="mod">core/llm</span> <span class="mod">core/db</span></div>
+        </div>
+      </div>
+      <div class="flow-step">
+        <div class="step-icon">⑥</div>
+        <div class="body">
+          <div class="title">완료 이벤트 발행 + FCM 푸시</div>
+          <div class="detail"><code>DailyReportGeneratedEvent</code> 발행. 이어서 <code>push.send_to_user(...)</code>로 "오늘의 리포트가 도착했어요" 푸시 (FCM 키 미설정 시 자동 no-op).</div>
+          <div class="modules"><span class="mod">core/event_bus</span> <span class="mod">core/push</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. 동 owner 시작 가이드 -->
+  <section>
+    <h2><span class="num">6</span>5명 동 owner 시작 가이드</h2>
+    <p class="lead">자기 동 카드만 보면 된다. 첫 PR까지 따라가는 체크리스트 + 자주 쓰는 코어 import.</p>
+    <div class="owners-grid">
+
+      <div class="owner-card owner-1">
+        <div class="header">
+          <span class="num">1동</span>
+          <span class="dong-name">온보딩</span>
+          <span class="fr">FR-01 · UC-01</span>
+        </div>
+        <div class="responsibility">성향 분석 설문 → AI 멘토 추천 → T1 배정. <code>OnboardingCompletedEvent</code> 발행.</div>
+        <ul class="checklist">
+          <li>models.py — user_profiles (interests, risk_profile)</li>
+          <li>router.py — POST /api/onboarding/profile, /select-mentor</li>
+          <li>service.py — 성향 분석 (LLM 또는 규칙)</li>
+          <li>완료 시 OnboardingCompletedEvent 발행</li>
+          <li>(선택) UserContextService에 interests 추가 PR</li>
+        </ul>
+        <div class="uses"><strong>자주 쓰는 것:</strong> get_current_user · core.llm · core.event_bus · UserId/MentorId/Tier</div>
+      </div>
+
+      <div class="owner-card owner-2">
+        <div class="header">
+          <span class="num">2동</span>
+          <span class="dong-name">학습</span>
+          <span class="fr">FR-02 · UC-04</span>
+        </div>
+        <div class="responsibility">멘토 채팅 (RAG + 페르소나 + 티어별 어휘) · 개념 퀴즈 · 이해도 게이지 트리거.</div>
+        <ul class="checklist">
+          <li>personas/ — 멘토별 시스템 프롬프트</li>
+          <li>curriculum.py — 개념 등장 감지 · 퀴즈 출제</li>
+          <li>models.py — chat_messages, chat_sessions</li>
+          <li>router.py — POST /api/learning/chat/stream (SSE)</li>
+          <li>퀴즈 통과 시 ConceptMasteredEvent 발행</li>
+        </ul>
+        <div class="uses"><strong>자주 쓰는 것:</strong> core.ai_pipeline.* (전부) · llm.chat_stream · user_context · vector_store</div>
+      </div>
+
+      <div class="owner-card owner-3">
+        <div class="header">
+          <span class="num">3동</span>
+          <span class="dong-name">성장</span>
+          <span class="fr">FR-07 · FR-10</span>
+        </div>
+        <div class="responsibility">티어 시스템 · 이해도 게이지 80% 감지 · 승급시험 · 잠금 해제.</div>
+        <ul class="checklist">
+          <li>models.py — tier_states, concept_masteries, promotion_test_attempts</li>
+          <li>handlers.py — ConceptMasteredEvent 구독 → 게이지 갱신</li>
+          <li>80% 도달 시 PromotionEligibleEvent 발행 (FCM 트리거)</li>
+          <li>router.py — POST /api/growth/promotion-test</li>
+          <li>(필요시) GrowthReader Protocol PR</li>
+        </ul>
+        <div class="uses"><strong>자주 쓰는 것:</strong> core.event_bus (구독·발행) · core.push · core.user_context</div>
+      </div>
+
+      <div class="owner-card owner-4">
+        <div class="header">
+          <span class="num">4동</span>
+          <span class="dong-name">토론 (투기장)</span>
+          <span class="fr">FR-04 · UC-03</span>
+        </div>
+        <div class="responsibility">멘토 간 의견→반박→재반박. T2 이상 활성화 (BR-01).</div>
+        <ul class="checklist">
+          <li>models.py — debate_sessions, debate_messages</li>
+          <li>personas.py — 토론용 페르소나 (학습 동과 별도)</li>
+          <li>router.py — POST /api/debate/start, GET /{id}/stream (SSE)</li>
+          <li>토론 종료 시 DebateCompletedEvent 발행</li>
+        </ul>
+        <div class="uses"><strong>자주 쓰는 것:</strong> core.ai_pipeline.* · llm.chat_stream · vector_store</div>
+        <div class="warn">⚠️ <strong>features/learning/* 절대 import 금지</strong> (ADR-011). 페르소나는 자기 동 자체 정의.</div>
+      </div>
+
+      <div class="owner-card owner-5">
+        <div class="header">
+          <span class="num">5동</span>
+          <span class="dong-name">콘텐츠</span>
+          <span class="fr">FR-05·06·08</span>
+        </div>
+        <div class="responsibility">뉴스·시장지표 수집 · 멘토 전략 기준 필터링 · 스크랩. <strong>ContentReader Protocol 구현</strong>.</div>
+        <ul class="checklist">
+          <li>models.py — news, market_indicators, scraps</li>
+          <li>crawler.py — Playwright/BS4 (Naver News 등)</li>
+          <li>external/ — ECOS · yFinance · Tavily 클라이언트</li>
+          <li>jobs.py — @interval(seconds=600, ...) 크롤링</li>
+          <li>read_service.py 실 구현 (현재 [] 반환)</li>
+        </ul>
+        <div class="uses"><strong>자주 쓰는 것:</strong> core.cache (외부 API 캐시) · core.jobs · user_context</div>
+      </div>
+
+      <div class="owner-card owner-6">
+        <div class="header">
+          <span class="num">6동</span>
+          <span class="dong-name">일일 리포트</span>
+          <span class="fr">FR-03 · UC-02</span>
+        </div>
+        <div class="responsibility">시범 PR로 cron + EventBus + ContentReader + Push 골격이 이미 구축됨. TODO 채우기.</div>
+        <ul class="checklist">
+          <li>models.py — daily_reports, report_processed_events (멱등성)</li>
+          <li>service.py TODO — LLM 호출 · DB 저장</li>
+          <li>handlers.py TODO — event_id UNIQUE 처리</li>
+          <li>router.py — GET /today, GET /{id}</li>
+        </ul>
+        <div class="uses"><strong>자주 쓰는 것:</strong> 이미 9개 모듈 사용 중 — core.{config, db, auth, event_bus, contracts, jobs, push, read_services, user_context}</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 7. Cookbook -->
+  <section>
+    <h2><span class="num">7</span>자주 하는 작업 (cookbook)</h2>
+    <p class="lead">동 owner가 자주 쓰는 패턴 8개. 전체 cookbook은 <a href="../AGENTS.md">../AGENTS.md §5</a> 참조.</p>
+    <div class="cookbook-grid">
+
+      <div class="cookbook-card">
+        <div class="title">📥 사용자 상태 읽기</div>
+        <div class="desc">티어·관심사·닉네임 등 본질적 사용자 상태 → UserContextService.</div>
+<pre><span class="kw">from</span> <span class="imp">core.user_context</span> <span class="kw">import</span> user_context
+
+ctx = <span class="kw">await</span> user_context.get_for_mentor_chat(uid)
+prompt = build(tier=ctx.tier, interests=ctx.interests)</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">📰 다른 동 콘텐츠 읽기</div>
+        <div class="desc">뉴스·시장지표 등 도메인 콘텐츠 → ReadServices Protocol.</div>
+<pre><span class="kw">from</span> <span class="imp">core.read_services</span> <span class="kw">import</span> content_reader
+
+news = <span class="kw">await</span> content_reader.get_today_news_for_user(
+    uid, top_k=<span class="str">3</span>,
+)</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">📤 이벤트 발행</div>
+        <div class="desc">옆 동에 변경을 알린다. 발행자는 결과를 기다리지 않는다.</div>
+<pre><span class="kw">from</span> <span class="imp">core.event_bus</span> <span class="kw">import</span> event_bus
+<span class="kw">from</span> <span class="imp">core.contracts</span> <span class="kw">import</span> ConceptMasteredEvent
+
+<span class="kw">await</span> event_bus.publish(
+    ConceptMasteredEvent(user_id=uid, concept_id=cid),
+)</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">📨 이벤트 구독 (멱등!)</div>
+        <div class="desc">자기 동 __init__.py에서 등록. 같은 event_id 두 번 와도 안전해야 함.</div>
+<pre><span class="kw">from</span> <span class="imp">core.event_bus</span> <span class="kw">import</span> event_bus
+<span class="kw">from</span> <span class="imp">core.contracts</span> <span class="kw">import</span> ConceptMasteredEvent
+
+<span class="kw">async def</span> on_concept(e: ConceptMasteredEvent):
+    <span class="com"># event_id UNIQUE 처리 후 부작용</span>
+    ...
+
+event_bus.subscribe(ConceptMasteredEvent, on_concept)</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">🌊 LLM SSE 스트리밍</div>
+        <div class="desc">멘토 채팅·토론. 토큰 단위 스트림. 키 없으면 ExternalServiceError.</div>
+<pre><span class="kw">from</span> <span class="imp">sse_starlette.sse</span> <span class="kw">import</span> EventSourceResponse
+<span class="kw">from</span> <span class="imp">core.llm</span> <span class="kw">import</span> llm, Message
+
+<span class="kw">async def</span> gen():
+    <span class="kw">async for</span> chunk <span class="kw">in</span> llm.chat_stream([Message(...)]):
+        yield {<span class="str">"event"</span>: <span class="str">"delta"</span>, <span class="str">"data"</span>: chunk.model_dump_json()}
+
+<span class="kw">return</span> EventSourceResponse(gen())</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">🛡️ AI 품질 가드</div>
+        <div class="desc">학습·토론에서 LLM 응답 전 후처리. NFR-04·05·06 만족.</div>
+<pre><span class="kw">from</span> <span class="imp">core.ai_pipeline</span> <span class="kw">import</span> (
+    rag, guardrail, hallucination, critic, tier_overlay,
+)
+
+ctx = <span class="kw">await</span> rag.retrieve(query, <span class="str">"learning_kb"</span>)
+prompt = tier_overlay.apply(prompt, tier)
+<span class="com"># ... LLM stream ...</span>
+<span class="kw">if not await</span> hallucination.verify(answer, ctx): ...</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">⏰ 스케줄 작업</div>
+        <div class="desc">매일 8시·N분 간격 등. APScheduler. 5필드 cron.</div>
+<pre><span class="kw">from</span> <span class="imp">core.jobs</span> <span class="kw">import</span> cron, interval
+
+<span class="com"># features/&lt;동&gt;/jobs.py</span>
+@cron(<span class="str">"0 8 * * *"</span>, id=<span class="str">"daily_report_dispatch"</span>)
+<span class="kw">async def</span> dispatch():
+    <span class="com"># cron → fan-out via EventBus 패턴 추천</span>
+    ...</pre>
+      </div>
+
+      <div class="cookbook-card">
+        <div class="title">📲 푸시 알림</div>
+        <div class="desc">FCM. 키 미설정 시 자동 no-op. PII 페이로드 금지.</div>
+<pre><span class="kw">from</span> <span class="imp">core.push</span> <span class="kw">import</span> push
+
+<span class="kw">await</span> push.send_to_user(
+    user_id=uid,
+    title=<span class="str">"승급시험 응시 가능!"</span>,
+    body=<span class="str">"T2로 올라갈 준비가 됐어요."</span>,
+    data={<span class="str">"deeplink"</span>: <span class="str">"mentors://promotion-test"</span>},
+)</pre>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 8. Import 룰 -->
+  <section>
+    <h2><span class="num">8</span>Import 룰 — 절대 금지 vs 권장</h2>
+    <p class="lead">이 룰을 어기지 않으면 6명이 동시에 PR을 올려도 머지 충돌이 거의 없다. <a href="../AGENTS.md">../AGENTS.md §3</a> 참조.</p>
+    <div class="rules">
+      <div class="rule-card forbid">
+        <div class="head">❌ 절대 금지</div>
+<pre><span class="bad">from</span> features.learning.service <span class="bad">import</span> ...   <span class="com"># 다른 동 (ADR-002)</span>
+<span class="bad">from</span> features.content.models <span class="bad">import</span> ...
+
+<span class="bad">import</span> openai          <span class="com"># 외부 SDK 직접 (ADR-010)</span>
+<span class="bad">import</span> chromadb        <span class="com"># → core/llm, vector_store 사용</span>
+
+<span class="com"># raw SQL 문자열</span>
+db.execute(<span class="bad">"SELECT * FROM users WHERE ..."</span>)
+
+<span class="com"># core/ 직접 수정</span>
+<span class="com"># → 코어 owner에게 PR</span></pre>
+      </div>
+      <div class="rule-card allow">
+        <div class="head">✅ 권장</div>
+<pre><span class="ok">from</span> core.user_context <span class="ok">import</span> user_context
+<span class="ok">from</span> core.read_services <span class="ok">import</span> content_reader
+<span class="ok">from</span> core.event_bus <span class="ok">import</span> event_bus
+<span class="ok">from</span> core.contracts <span class="ok">import</span> UserId, ConceptMasteredEvent
+<span class="ok">from</span> core.llm <span class="ok">import</span> llm
+<span class="ok">from</span> core.ai_pipeline <span class="ok">import</span> rag, guardrail, hallucination
+<span class="ok">from</span> core.jobs <span class="ok">import</span> cron
+<span class="ok">from</span> core.push <span class="ok">import</span> push
+<span class="ok">from</span> core.exceptions <span class="ok">import</span> NotFoundError</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. TODO -->
+  <section>
+    <h2><span class="num">9</span>알려진 TODO · 다음 단계</h2>
+    <p class="lead">코어 owner / 동 owner / 프론트엔드별로 정리. 우선순위 순.</p>
+    <div class="todo-grid">
+      <div class="todo-card priority">
+        <div class="title">🟥 코어 owner — 우선</div>
+        <ul>
+          <li>Day 3 실 OAuth 통합 테스트 (Google 키 발급 후)</li>
+          <li>Docker 컨테이너 검증 (Docker Desktop 시작 후)</li>
+          <li>실 LLM 통합 테스트 (OpenAI 키 발급 후)</li>
+        </ul>
+      </div>
+      <div class="todo-card">
+        <div class="title">🟦 코어 owner — 중기</div>
+        <ul>
+          <li>psycopg 추가 → SQLAlchemyJobStore 활성화</li>
+          <li>LLM rate limit 정책 (인당 일일 호출 상한)</li>
+          <li>JWT refresh token (24h 만료 보완)</li>
+          <li>import-linter CI 강제</li>
+        </ul>
+      </div>
+      <div class="todo-card">
+        <div class="title">🟪 시범 PR (일일리포트) 채우기</div>
+        <ul>
+          <li>daily_reports 테이블 + 마이그레이션</li>
+          <li>report_processed_events (멱등성 키)</li>
+          <li>LLM 본문 생성 (TODO in service.py)</li>
+          <li>/api/daily-report/today 라우터 구현</li>
+        </ul>
+      </div>
+      <div class="todo-card fe">
+        <div class="title">🟦 프론트엔드 (별도 owner)</div>
+        <ul>
+          <li>OpenAPI → TypeScript 타입 자동 생성</li>
+          <li>OAuth deep link (mentors://auth?token=...)</li>
+          <li>SSE 클라이언트 통합 (/debug/llm-stream으로 검증 가능)</li>
+          <li>FCM 토큰 등록 (POST /me/devices)</li>
+        </ul>
+      </div>
+      <div class="todo-card">
+        <div class="title">🟫 5명 동 owner</div>
+        <ul>
+          <li>각자 §6 시작 가이드 카드 따라가기</li>
+          <li>첫 마이그레이션 (자기 동 테이블)</li>
+          <li>첫 라우터 1개 (happy path)</li>
+          <li>관련 contracts 이벤트 추가 PR</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 10. 인수인계 미팅 안건 -->
+  <section>
+    <h2><span class="num">10</span>인수인계 미팅 안건 (60분)</h2>
+    <p class="lead">합류 첫날 함께 본다. 끝나고 각 owner는 첫 PR 올릴 수 있어야 한다.</p>
+    <div class="todo-grid">
+      <div class="todo-card">
+        <div class="title">⏱️ 0~15분 — 데모</div>
+        <ul>
+          <li>uvicorn 부팅 → /health 200</li>
+          <li>/debug/llm-stream SSE fake stream</li>
+          <li>/docs Swagger UI (18 라우트)</li>
+        </ul>
+      </div>
+      <div class="todo-card">
+        <div class="title">⏱️ 15~30분 — 같이 읽기</div>
+        <ul>
+          <li>이 시각자료 §1~5</li>
+          <li>모듈_다이어그램.html — 5계층 구조</li>
+          <li>AGENTS.md §3 Import 룰</li>
+          <li>시범 PR (features/daily_report) 코드 흐름</li>
+        </ul>
+      </div>
+      <div class="todo-card">
+        <div class="title">⏱️ 30~50분 — 동별 1:1</div>
+        <ul>
+          <li>각 owner §6 시작 카드 같이 읽기</li>
+          <li>첫 마이그레이션 함께 만들기</li>
+          <li>첫 라우터 stub 함께 짜기</li>
+        </ul>
+      </div>
+      <div class="todo-card">
+        <div class="title">⏱️ 50~60분 — Q&A</div>
+        <ul>
+          <li>contracts 변경 절차 (PR 리뷰)</li>
+          <li>다른 동 데이터 필요할 때 어떻게?</li>
+          <li>코어 owner 연락 채널</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
