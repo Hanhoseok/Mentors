@@ -1,14 +1,6 @@
-"""UserContextService — 사용자 상태 단일 read 창구 (§4.6, ADR-003).
+"""Read facade for cross-feature user context."""
 
-Day 6 MVP:
-- User 테이블(코어)에서 nickname/status 조회
-- tier/interests/mentor 등 동 자체 데이터는 디폴트 (각 동 owner가 PR로 확장)
-
-향후 확장 패턴:
-- 성장 동의 GrowthReader가 등록되면 get_tier()를 위임
-- 온보딩 동이 user_profiles 추가하면 get_interests() 위임
-"""
-
+import json
 import logging
 from datetime import datetime
 
@@ -24,6 +16,7 @@ from core.contracts import (
 from core.db import SessionLocal
 from core.event_bus import event_bus
 from core.exceptions import NotFoundError
+from features.onboarding.models import UserProfile
 
 from .dto import (
     DailyReportContext,
@@ -34,28 +27,35 @@ from .dto import (
 )
 
 logger = logging.getLogger("user_context")
-_CACHE_TTL = 300  # 5분 (§7.3)
+_CACHE_TTL = 300
 
 
 class UserContextService:
     def __init__(self) -> None:
         self._cache = make_cache("user_context")
 
-    # --- 단일 값 getter ---
-
     async def get_tier(self, user_id: UserId) -> Tier:
-        # TODO: 성장 동 owner가 GrowthReader 등록 시 위임
-        return Tier.T1
+        profile = await self._load_profile(user_id)
+        if profile is None or not profile.current_tier:
+            return Tier.T1
+        try:
+            return Tier(profile.current_tier)
+        except ValueError:
+            logger.warning(
+                "user_context.invalid_tier",
+                extra={"user_id": user_id, "tier": profile.current_tier},
+            )
+            return Tier.T1
 
     async def get_interests(self, user_id: UserId) -> list[str]:
-        # TODO: 온보딩 동이 user_profiles 추가하면 위임
-        return []
+        profile = await self._load_profile(user_id)
+        return self._deserialize_interests(
+            profile.interests_json if profile is not None else None
+        )
 
     async def get_status(self, user_id: UserId) -> UserStatus:
         user = await self._load_user(user_id)
         return UserStatus(user.status)
-
-    # --- Use-case DTO ---
 
     async def get_for_mentor_chat(self, user_id: UserId) -> MentorChatContext:
         base = await self._load_base(user_id)
@@ -69,16 +69,16 @@ class UserContextService:
         base = await self._load_base(user_id)
         return DailyReportContext(
             **base.model_dump(),
-            today_chat_count=0,  # TODO: 학습 동 위임
-            today_scrap_count=0,  # TODO: 콘텐츠 동 위임
+            today_chat_count=0,
+            today_scrap_count=0,
         )
 
     async def get_for_promotion_test(self, user_id: UserId) -> PromotionTestContext:
         base = await self._load_base(user_id)
         return PromotionTestContext(
             **base.model_dump(),
-            chat_count_this_week=0,  # TODO: 학습 동 위임
-            last_promotion_attempt_at=None,  # TODO: 성장 동 위임
+            chat_count_this_week=0,
+            last_promotion_attempt_at=None,
         )
 
     async def get_for_debate(self, user_id: UserId) -> DebateContext:
@@ -88,14 +88,10 @@ class UserContextService:
             interests=await self.get_interests(user_id),
         )
 
-    # --- 캐시 무효화 (이벤트 구독) ---
-
     async def invalidate(self, user_id: UserId) -> None:
         await self._cache.delete(f"base:{user_id}")
         await self._cache.delete(f"tier:{user_id}")
         await self._cache.delete(f"interests:{user_id}")
-
-    # --- 내부 ---
 
     async def _load_base(self, user_id: UserId) -> UserContextBase:
         user = await self._load_user(user_id)
@@ -113,15 +109,35 @@ class UserContextService:
             raise NotFoundError(f"User {user_id} not found")
         return user
 
+    async def _load_profile(self, user_id: UserId) -> UserProfile | None:
+        async with SessionLocal() as session:
+            return await session.get(UserProfile, int(user_id))
+
     async def _get_selected_mentor(self, user_id: UserId) -> MentorId | None:
-        # TODO: 학습 동 위임
-        return None
+        profile = await self._load_profile(user_id)
+        if profile is None or profile.selected_mentor_id is None:
+            return None
+        return MentorId(profile.selected_mentor_id)
+
+    def _deserialize_interests(self, raw_interests: str | None) -> list[str]:
+        if not raw_interests:
+            return []
+        try:
+            decoded = json.loads(raw_interests)
+        except json.JSONDecodeError:
+            logger.warning("user_context.invalid_interests_payload")
+            return []
+        if not isinstance(decoded, list):
+            return []
+
+        interests: list[str] = []
+        for value in decoded:
+            if isinstance(value, str) and value not in interests:
+                interests.append(value)
+        return interests
 
 
 user_context = UserContextService()
-
-
-# --- 이벤트 구독 (UserUpdatedEvent 시 캐시 무효화) ---
 
 
 async def _on_user_updated(event: UserUpdatedEvent) -> None:
@@ -130,7 +146,4 @@ async def _on_user_updated(event: UserUpdatedEvent) -> None:
 
 
 event_bus.subscribe(UserUpdatedEvent, _on_user_updated)
-
-
-# `datetime`은 DTO에서만 사용 — 명시적 import 유지
 _ = datetime
