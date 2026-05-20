@@ -25,13 +25,14 @@ export interface CompletedOnboardingProfile {
   riskProfile: RiskProfile;
   learningGoal: LearningGoal;
   preferredStyle: PreferredStyle;
-  selectedMentorId: string;
+  selectedMentorId: number;
   completedAt: string;
   syncState: OnboardingSyncState;
 }
 
 export interface MentorProfile {
-  id: string;
+  id: number;
+  slug: string;
   name: string;
   title: string;
   oneLiner: string;
@@ -51,19 +52,52 @@ export interface MentorRecommendation extends MentorProfile {
   reasons: string[];
 }
 
+export interface MentorSummaryResponse {
+  id: number;
+  slug: string;
+  name: string;
+  title: string;
+  summary: string;
+  reason: string;
+}
+
 export interface OnboardingProfilePayload {
   experience_level: ExperienceLevel;
   interests: InterestTag[];
   risk_profile: RiskProfile;
   learning_goal: LearningGoal;
   preferred_style: PreferredStyle;
+  answers: {
+    question_code: string;
+    question_text: string;
+    answer_value: string;
+  }[];
 }
 
 export interface MentorSelectionPayload {
-  mentor_id: string;
+  mentor_id: number;
+}
+
+export interface SelectedMentorResponse {
+  id: number;
+  slug: string;
+  name: string;
+}
+
+export interface OnboardingProfileResponse {
+  profile: {
+    experience_level: ExperienceLevel;
+    interests: InterestTag[];
+    risk_profile: RiskProfile;
+    learning_goal: LearningGoal;
+    preferred_style: PreferredStyle;
+  };
+  recommended_mentors: MentorSummaryResponse[];
 }
 
 export interface OnboardingStatusResponse {
-  user_id?: string;
   onboarded: boolean;
+  tier?: string | null;
+  selected_mentor?: SelectedMentorResponse | null;
+  completed_at?: string | null;
 }

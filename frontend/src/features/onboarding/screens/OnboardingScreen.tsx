@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { DevAccessTokenCard } from '@/components/DevAccessTokenCard';
 import { colors } from '@/constants/colors';
 import { useUserStore } from '@/store/userStore';
 import { saveMentorSelection, saveOnboardingProfile } from '../api';
@@ -16,12 +17,17 @@ import { SelectionChip } from '../components/SelectionChip';
 import {
   buildCompletedProfile,
   buildProfilePayload,
+  buildRecommendedMentorsFromApi,
   EMPTY_ONBOARDING_SURVEY,
   getRecommendedMentors,
   isSurveyComplete,
   toggleInterest,
 } from '../logic';
-import type { OnboardingSurvey, OnboardingSyncState } from '../types';
+import type {
+  MentorRecommendation,
+  OnboardingSurvey,
+  OnboardingSyncState,
+} from '../types';
 
 function Section({
   title,
@@ -48,9 +54,18 @@ export function OnboardingScreen() {
   const finishOnboarding = useUserStore((state) => state.finishOnboarding);
   const [survey, setSurvey] = useState<OnboardingSurvey>(EMPTY_ONBOARDING_SURVEY);
   const [step, setStep] = useState<'survey' | 'mentor'>('survey');
-  const [selectedMentorId, setSelectedMentorId] = useState<string | null>(null);
+  const [selectedMentorId, setSelectedMentorId] = useState<number | null>(null);
+  const [remoteRecommendations, setRemoteRecommendations] = useState<MentorRecommendation[] | null>(
+    null,
+  );
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
-  const recommendations = getRecommendedMentors(survey);
+
+  const localRecommendations = getRecommendedMentors(survey);
+  const recommendations = remoteRecommendations ?? localRecommendations;
+
+  const recommendationMutation = useMutation({
+    mutationFn: saveOnboardingProfile,
+  });
 
   const submitMutation = useMutation({
     mutationFn: async ({
@@ -58,7 +73,7 @@ export function OnboardingScreen() {
       mentorId,
     }: {
       currentSurvey: OnboardingSurvey;
-      mentorId: string;
+      mentorId: number;
     }) => {
       if (!accessToken) {
         return { syncState: 'local' as const };
@@ -76,8 +91,37 @@ export function OnboardingScreen() {
     recommendations.find((mentor) => mentor.id === selectedMentorId) ?? recommendations[0] ?? null;
 
   const helperText = accessToken
-    ? '백엔드 온보딩 API가 아직 채워지는 중이라, 저장이 실패해도 추천 결과는 로컬에서 이어집니다.'
-    : '지금은 로그인 전 데모 모드예요. 선택 내용은 앱 상태에 먼저 저장됩니다.';
+    ? '백엔드 온보딩 API와 연결된 상태입니다. 추천 결과는 서버 응답을 우선 사용하고, 실패하면 로컬 추천으로 이어집니다.'
+    : '지금은 로그인 없는 로컬 모드예요. 설문과 멘토 선택 흐름만 먼저 확인할 수 있습니다.';
+
+  async function handleShowMentors() {
+    if (!surveyReady) {
+      setSubmitMessage('질문에 모두 답하면 멘토 추천을 시작할 수 있어요.');
+      return;
+    }
+
+    setSubmitMessage(null);
+    setRemoteRecommendations(null);
+
+    if (!accessToken) {
+      setSelectedMentorId(localRecommendations[0]?.id ?? null);
+      setStep('mentor');
+      return;
+    }
+
+    try {
+      const response = await recommendationMutation.mutateAsync(buildProfilePayload(survey));
+      const nextRecommendations = buildRecommendedMentorsFromApi(response.recommended_mentors);
+      setRemoteRecommendations(nextRecommendations);
+      setSelectedMentorId(nextRecommendations[0]?.id ?? null);
+      setStep('mentor');
+      setSubmitMessage('서버 추천 결과를 기준으로 멘토 목록을 불러왔어요.');
+    } catch {
+      setSelectedMentorId(localRecommendations[0]?.id ?? null);
+      setStep('mentor');
+      setSubmitMessage('서버 추천을 불러오지 못해 로컬 추천으로 이어갑니다.');
+    }
+  }
 
   async function handleFinish() {
     if (!surveyReady || !selectedMentor) {
@@ -94,11 +138,11 @@ export function OnboardingScreen() {
       });
       syncState = result.syncState;
       if (syncState === 'remote') {
-        setSubmitMessage('서버 스펙에 맞춰 프로필과 멘토 선택까지 함께 저장했어요.');
+        setSubmitMessage('서버 스펙에 맞춰 프로필과 멘토 선택까지 저장했어요.');
       }
     } catch {
       syncState = 'local';
-      setSubmitMessage('현재 서버는 스텁 단계라 로컬 완료로 이어갑니다.');
+      setSubmitMessage('현재 서버 연결이 불안정해서 로컬 완료 상태로 이어갑니다.');
     }
 
     finishOnboarding({
@@ -113,7 +157,8 @@ export function OnboardingScreen() {
         <Text style={styles.eyebrow}>Mentors Onboarding</Text>
         <Text style={styles.heroTitle}>나한테 맞는 첫 멘토를 먼저 골라볼게요.</Text>
         <Text style={styles.heroDescription}>
-          문서에 정의된 온보딩 플로우를 기준으로 성향 설문과 멘토 선택을 한 번에 연결해 두었습니다.
+          설문 응답을 바탕으로 투자 스타일에 맞는 멘토를 추천하고, 선택이 끝나면 T1부터
+          바로 시작할 수 있게 연결해 둔 흐름입니다.
         </Text>
         <View style={styles.stepRow}>
           <View style={[styles.stepBadge, styles.stepBadgeActive]}>
@@ -136,6 +181,8 @@ export function OnboardingScreen() {
           </View>
         </View>
       </View>
+
+      <DevAccessTokenCard />
 
       {step === 'survey' ? (
         <>
@@ -170,7 +217,7 @@ export function OnboardingScreen() {
             ))}
           </Section>
 
-          <Section title="리스크 감도" description="불안의 크기와 학습 템포에 영향을 줍니다.">
+          <Section title="리스크 성향" description="어느 정도 변동성을 감수할지의 기준입니다.">
             {riskProfileOptions.map((option) => (
               <SelectionChip
                 key={option.value}
@@ -182,22 +229,21 @@ export function OnboardingScreen() {
             ))}
           </Section>
 
-          <Section
-            title="이번 온보딩의 목표"
-            description="첫 1주 동안 무엇을 얻고 싶은지 골라 주세요."
-          >
+          <Section title="이번 온보딩의 목표" description="첫 1주 동안 무엇을 배우고 싶은지 고릅니다.">
             {learningGoalOptions.map((option) => (
               <SelectionChip
                 key={option.value}
                 label={option.label}
                 description={option.description}
                 selected={survey.learningGoal === option.value}
-                onPress={() => setSurvey((current) => ({ ...current, learningGoal: option.value }))}
+                onPress={() =>
+                  setSurvey((current) => ({ ...current, learningGoal: option.value }))
+                }
               />
             ))}
           </Section>
 
-          <Section title="원하는 코칭 스타일" description="멘토의 말투와 과제 템포를 맞춥니다.">
+          <Section title="원하는 코칭 스타일" description="멘토의 설명 톤과 템포를 맞춥니다.">
             {preferredStyleOptions.map((option) => (
               <SelectionChip
                 key={option.value}
@@ -214,18 +260,15 @@ export function OnboardingScreen() {
           <View style={styles.footerCard}>
             <Text style={styles.helperText}>{helperText}</Text>
             <Pressable
-              onPress={() => {
-                if (!surveyReady) {
-                  setSubmitMessage('질문에 모두 답하면 멘토 추천을 시작할 수 있어요.');
-                  return;
-                }
-
-                setSelectedMentorId(recommendations[0]?.id ?? null);
-                setStep('mentor');
-              }}
-              style={[styles.primaryButton, !surveyReady && styles.primaryButtonDisabled]}
+              onPress={handleShowMentors}
+              style={[
+                styles.primaryButton,
+                (!surveyReady || recommendationMutation.isPending) && styles.primaryButtonDisabled,
+              ]}
             >
-              <Text style={styles.primaryButtonText}>추천 멘토 보기</Text>
+              <Text style={styles.primaryButtonText}>
+                {recommendationMutation.isPending ? '추천 불러오는 중...' : '추천 멘토 보기'}
+              </Text>
             </Pressable>
             {submitMessage ? <Text style={styles.noticeText}>{submitMessage}</Text> : null}
           </View>
@@ -236,7 +279,8 @@ export function OnboardingScreen() {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>추천 멘토</Text>
               <Text style={styles.sectionDescription}>
-                설문 답변을 점수화해서 현재 성향과 가장 잘 맞는 순서대로 정렬했습니다.
+                로그인 상태라면 백엔드 추천 결과를 그대로 사용하고, 아니면 프론트 fallback
+                추천을 보여줍니다.
               </Text>
             </View>
             <View style={styles.mentorList}>
@@ -256,15 +300,18 @@ export function OnboardingScreen() {
             {submitMutation.isPending ? (
               <View style={styles.pendingRow}>
                 <ActivityIndicator color={colors.primary} />
-                <Text style={styles.pendingText}>선택 내용을 저장하는 중이에요.</Text>
+                <Text style={styles.pendingText}>멘토 선택 내용을 저장하고 있어요.</Text>
               </View>
             ) : null}
             <View style={styles.actionRow}>
               <Pressable
-                onPress={() => setStep('survey')}
+                onPress={() => {
+                  setRemoteRecommendations(null);
+                  setStep('survey');
+                }}
                 style={[styles.secondaryButton, styles.actionButton]}
               >
-                <Text style={styles.secondaryButtonText}>답변 수정</Text>
+                <Text style={styles.secondaryButtonText}>응답 수정</Text>
               </Pressable>
               <Pressable onPress={handleFinish} style={[styles.primaryButton, styles.actionButton]}>
                 <Text style={styles.primaryButtonText}>이 멘토로 시작하기</Text>

@@ -9,6 +9,7 @@ import {
 import type {
   CompletedOnboardingProfile,
   InterestTag,
+  MentorSummaryResponse,
   MentorProfile,
   MentorRecommendation,
   OnboardingProfilePayload,
@@ -124,8 +125,75 @@ export function getRecommendedMentors(survey: OnboardingSurvey): MentorRecommend
     });
 }
 
-export function getMentorById(id: string): MentorProfile | null {
+export function getMentorById(id: number): MentorProfile | null {
   return mentorCatalog.find((mentor) => mentor.id === id) ?? null;
+}
+
+export function buildRecommendedMentorsFromApi(
+  recommendedMentors: MentorSummaryResponse[],
+): MentorRecommendation[] {
+  return recommendedMentors.map((mentor, index) => {
+    const catalogMentor = getMentorById(mentor.id);
+
+    if (!catalogMentor) {
+      return {
+        id: mentor.id,
+        slug: mentor.slug,
+        name: mentor.name,
+        title: mentor.title,
+        oneLiner: mentor.summary,
+        philosophy: mentor.summary,
+        idealFor: mentor.reason,
+        accentColor: '#355CDE',
+        focusTags: [],
+        experienceMatch: [],
+        riskMatch: [],
+        styleMatch: [],
+        goalMatch: [],
+        strengths: [],
+        score: recommendedMentors.length - index,
+        reasons: [mentor.reason],
+      };
+    }
+
+    return {
+      ...catalogMentor,
+      title: mentor.title,
+      oneLiner: mentor.summary,
+      score: recommendedMentors.length - index,
+      reasons: [mentor.reason],
+    };
+  });
+}
+
+function buildSurveyAnswers(survey: CompletedSurvey): OnboardingProfilePayload['answers'] {
+  return [
+    {
+      question_code: 'experience_level',
+      question_text: '현재 투자 경험',
+      answer_value: survey.experienceLevel,
+    },
+    {
+      question_code: 'interests',
+      question_text: '관심 있는 주제',
+      answer_value: survey.interests.join(', '),
+    },
+    {
+      question_code: 'risk_profile',
+      question_text: '리스크 성향',
+      answer_value: survey.riskProfile,
+    },
+    {
+      question_code: 'learning_goal',
+      question_text: '이번 온보딩의 목표',
+      answer_value: survey.learningGoal,
+    },
+    {
+      question_code: 'preferred_style',
+      question_text: '원하는 코칭 스타일',
+      answer_value: survey.preferredStyle,
+    },
+  ];
 }
 
 export function buildProfilePayload(survey: OnboardingSurvey): OnboardingProfilePayload {
@@ -139,12 +207,13 @@ export function buildProfilePayload(survey: OnboardingSurvey): OnboardingProfile
     risk_profile: survey.riskProfile,
     learning_goal: survey.learningGoal,
     preferred_style: survey.preferredStyle,
+    answers: buildSurveyAnswers(survey),
   };
 }
 
 export function buildCompletedProfile(
   survey: OnboardingSurvey,
-  mentorId: string,
+  mentorId: number,
   syncState: OnboardingSyncState,
 ): CompletedOnboardingProfile {
   if (!isSurveyComplete(survey)) {
