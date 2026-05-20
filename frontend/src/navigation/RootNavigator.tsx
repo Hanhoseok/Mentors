@@ -5,7 +5,6 @@ import {
 } from '@react-navigation/native-stack';
 import { useQuery } from '@tanstack/react-query';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { DevAccessTokenCard } from '@/components/DevAccessTokenCard';
 import { colors } from '@/constants/colors';
 import { getGrowthApiErrorMessage, getGrowthProgress } from '@/features/growth/api';
 import { GrowthProgressCard } from '@/features/growth/components/GrowthProgressCard';
@@ -44,10 +43,10 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
     <ScrollView contentContainerStyle={styles.homeContainer}>
       <View style={styles.heroCard}>
         <Text style={styles.eyebrow}>Mentors Home</Text>
-        <Text style={styles.heroTitle}>온보딩 뒤에 이어질 성장 흐름까지 붙였어요.</Text>
+        <Text style={styles.heroTitle}>첫 멘토링 설정이 준비됐어요.</Text>
         <Text style={styles.heroDescription}>
-          이제 홈 화면에서 현재 티어, 이해도 게이지, 잠금해제 기능, 승급시험 진입 상태를 바로 확인할
-          수 있어요.
+          온보딩에서 고른 성향을 바탕으로 홈에서 이어서 학습, 토론, 리포트를 붙일 수 있도록 구조를
+          먼저 열어뒀습니다.
         </Text>
         <View
           style={[
@@ -58,12 +57,10 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
           <Text style={styles.syncBadgeText}>
             {onboardingSource === 'remote'
               ? '서버 온보딩 상태와 동기화됨'
-              : '로컬 데모 모드로 진행 중'}
+              : '로컬 데모 모드로 저장됨'}
           </Text>
         </View>
       </View>
-
-      <DevAccessTokenCard />
 
       {selectedMentor ? (
         <View style={styles.summaryCard}>
@@ -99,8 +96,8 @@ function HomeScreen({ navigation }: NativeStackScreenProps<RootStackParamList, '
         <View style={styles.summaryCard}>
           <Text style={styles.sectionTitle}>서버 상태로 완료된 사용자</Text>
           <Text style={styles.summaryText}>
-            현재는 서버에서 온보딩 완료 여부만 읽고 있어요. 이후 프로필 조회 API가 생기면 같은
-            카드에 내용이 바로 채워질 수 있게 유지했습니다.
+            현재는 서버에서 온보딩 완료 여부만 내려주기 때문에, 세부 프로필은 이후 API가 열리면 이
+            카드에 채워질 수 있게 준비해 두었습니다.
           </Text>
         </View>
       )}
@@ -156,10 +153,9 @@ export function RootNavigator() {
         <Stack.Screen name="Onboarding">
           {() => (
             <View style={styles.loadingContainer}>
-              <Text style={styles.loadingTitle}>기존 온보딩 상태를 확인하고 있어요</Text>
+              <Text style={styles.loadingTitle}>기존 온보딩 상태를 확인하고 있어요.</Text>
               <Text style={styles.loadingDescription}>
-                서버 정보가 있으면 곧바로 홈으로 보내고, 없으면 이어서 온보딩을 진행할 수 있게
-                준비합니다.
+                서버 정보가 없거나 아직 스텁이면 바로 온보딩 화면으로 이어집니다.
               </Text>
             </View>
           )}

@@ -1,7 +1,6 @@
 """Alembic env (async) — see ADR-009."""
 
 import asyncio
-import sys
 from logging.config import fileConfig
 
 from alembic import context
@@ -27,9 +26,6 @@ from features.onboarding.models import (  # noqa: E402, F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
-
-if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

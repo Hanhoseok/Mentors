@@ -1,3 +1,6 @@
-"""Growth feature package."""
+from .bootstrap import register_growth_subscriptions
+from .router import router
 
-__all__: list[str] = []
+register_growth_subscriptions()
+
+__all__ = ["router"]

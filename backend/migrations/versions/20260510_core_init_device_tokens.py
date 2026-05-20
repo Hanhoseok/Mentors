@@ -18,37 +18,32 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    bind = op.get_bind()
-    inspector = sa.inspect(bind)
-    tables = set(inspector.get_table_names())
-
-    if "device_tokens" not in tables:
-        op.create_table(
-            "device_tokens",
-            sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
-            sa.Column(
-                "user_id",
-                sa.BigInteger(),
-                sa.ForeignKey("users.id", ondelete="CASCADE"),
-                nullable=False,
-            ),
-            sa.Column("fcm_token", sa.String(512), nullable=False),
-            sa.Column("platform", sa.String(10), nullable=False),
-            sa.Column(
-                "created_at",
-                sa.DateTime(timezone=True),
-                server_default=sa.func.now(),
-                nullable=False,
-            ),
-            sa.Column(
-                "last_seen_at",
-                sa.DateTime(timezone=True),
-                server_default=sa.func.now(),
-                nullable=False,
-            ),
-            sa.UniqueConstraint("fcm_token", name="uq_device_tokens_fcm_token"),
-        )
-        op.create_index("ix_device_tokens_user_id", "device_tokens", ["user_id"])
+    op.create_table(
+        "device_tokens",
+        sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
+        sa.Column(
+            "user_id",
+            sa.BigInteger(),
+            sa.ForeignKey("users.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("fcm_token", sa.String(512), nullable=False),
+        sa.Column("platform", sa.String(10), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.Column(
+            "last_seen_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.UniqueConstraint("fcm_token", name="uq_device_tokens_fcm_token"),
+    )
+    op.create_index("ix_device_tokens_user_id", "device_tokens", ["user_id"])
 
 
 def downgrade() -> None:

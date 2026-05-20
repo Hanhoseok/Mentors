@@ -16,7 +16,6 @@ from core.contracts import (
 from core.db import SessionLocal
 from core.event_bus import event_bus
 from core.exceptions import NotFoundError
-from features.growth.models import TierState
 from features.onboarding.models import UserProfile
 
 from .dto import (
@@ -36,16 +35,6 @@ class UserContextService:
         self._cache = make_cache("user_context")
 
     async def get_tier(self, user_id: UserId) -> Tier:
-        growth_state = await self._load_growth_state(user_id)
-        if growth_state is not None and growth_state.current_tier:
-            try:
-                return Tier(growth_state.current_tier)
-            except ValueError:
-                logger.warning(
-                    "user_context.invalid_growth_tier",
-                    extra={"user_id": user_id, "tier": growth_state.current_tier},
-                )
-
         profile = await self._load_profile(user_id)
         if profile is None or not profile.current_tier:
             return Tier.T1
@@ -60,7 +49,9 @@ class UserContextService:
 
     async def get_interests(self, user_id: UserId) -> list[str]:
         profile = await self._load_profile(user_id)
-        return self._deserialize_interests(profile.interests_json if profile is not None else None)
+        return self._deserialize_interests(
+            profile.interests_json if profile is not None else None
+        )
 
     async def get_status(self, user_id: UserId) -> UserStatus:
         user = await self._load_user(user_id)
@@ -87,7 +78,7 @@ class UserContextService:
         return PromotionTestContext(
             **base.model_dump(),
             chat_count_this_week=0,
-            last_promotion_attempt_at=await self._get_last_promotion_attempt_at(user_id),
+            last_promotion_attempt_at=None,
         )
 
     async def get_for_debate(self, user_id: UserId) -> DebateContext:
@@ -122,19 +113,11 @@ class UserContextService:
         async with SessionLocal() as session:
             return await session.get(UserProfile, int(user_id))
 
-    async def _load_growth_state(self, user_id: UserId) -> TierState | None:
-        async with SessionLocal() as session:
-            return await session.get(TierState, int(user_id))
-
     async def _get_selected_mentor(self, user_id: UserId) -> MentorId | None:
         profile = await self._load_profile(user_id)
         if profile is None or profile.selected_mentor_id is None:
             return None
         return MentorId(profile.selected_mentor_id)
-
-    async def _get_last_promotion_attempt_at(self, user_id: UserId) -> datetime | None:
-        state = await self._load_growth_state(user_id)
-        return None if state is None else state.last_promotion_attempt_at
 
     def _deserialize_interests(self, raw_interests: str | None) -> list[str]:
         if not raw_interests:

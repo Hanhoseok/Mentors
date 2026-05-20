@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -27,18 +26,12 @@ from core.user_context import user_context  # noqa: F401  (event handler 등록 
 from features.content import router as content_router
 from features.daily_report import router as daily_report_router
 from features.debate import router as debate_router
-from features.growth.bootstrap import register_growth_subscriptions
-from features.growth.router import router as growth_router
+from features.growth import router as growth_router
 from features.learning import router as learning_router
 from features.onboarding import router as onboarding_router
 
 setup_logging()
 logger = logging.getLogger("main")
-
-if sys.platform == "win32" and hasattr(asyncio, "WindowsSelectorEventLoopPolicy"):
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-register_growth_subscriptions()
 
 
 @asynccontextmanager
