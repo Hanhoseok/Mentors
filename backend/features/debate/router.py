@@ -998,10 +998,6 @@ class NewsEvidence:
         return f"제목: \"{title}\"{source} / 핵심: {self.fact_clause()}{caution}{url}"
 
 
-def _extract_evidence(context: RAGContext, limit: int = 3) -> list[str]:
-    return [point.as_text() for point in _extract_news_evidence(context, limit)]
-
-
 def _extract_news_evidence(context: RAGContext, limit: int = 3) -> list[NewsEvidence]:
     points: list[NewsEvidence] = []
     for doc in context.documents:
@@ -1042,16 +1038,6 @@ def _document_payload(doc: Document) -> dict[str, object]:
         "published_at": str(doc.metadata.get("published_at") or "").strip(),
         "metadata": doc.metadata,
     }
-
-
-def _first_sentence(text: str, max_chars: int = 120) -> str:
-    compact = " ".join(text.split())
-    if not compact:
-        return ""
-    stops = [". ", "? ", "! ", "。 ", "다. "]
-    indexes = [compact.find(stop) + len(stop.strip()) for stop in stops if compact.find(stop) >= 0]
-    end = min(indexes) if indexes else len(compact)
-    return compact[:end][:max_chars].rstrip()
 
 
 def _extract_news_summary(text: str, title: str, max_chars: int = 130) -> str:
