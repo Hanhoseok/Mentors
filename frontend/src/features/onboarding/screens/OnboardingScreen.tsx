@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { DevAccessTokenCard } from '@/components/DevAccessTokenCard';
 import { colors } from '@/constants/colors';
 import { useUserStore } from '@/store/userStore';
@@ -13,47 +14,155 @@ import {
   riskProfileOptions,
 } from '../data';
 import { MentorRecommendationCard } from '../components/MentorRecommendationCard';
-import { SelectionChip } from '../components/SelectionChip';
 import {
   buildCompletedProfile,
   buildProfilePayload,
   buildRecommendedMentorsFromApi,
   EMPTY_ONBOARDING_SURVEY,
+  getOnboardingProgressValue,
+  getOnboardingStepLabel,
   getRecommendedMentors,
   isSurveyComplete,
+  ONBOARDING_STEP_COUNT,
   toggleInterest,
 } from '../logic';
 import type {
   MentorRecommendation,
   OnboardingSurvey,
   OnboardingSyncState,
+  SelectOption,
 } from '../types';
 
-function Section({
-  title,
-  description,
-  children,
-}: {
+type AgeRange = 'teens' | 'early20s' | 'late20s' | 'thirties' | 'fortiesPlus';
+type SurveyStepKey = 'age' | 'experience' | 'risk' | 'goal' | 'style' | 'interests';
+
+interface AgeOption {
+  value: AgeRange;
+  label: string;
+}
+
+const ageOptions: AgeOption[] = [
+  { value: 'teens', label: '10대' },
+  { value: 'early20s', label: '20대 초반 (20~24세)' },
+  { value: 'late20s', label: '20대 후반 (25~29세)' },
+  { value: 'thirties', label: '30대' },
+  { value: 'fortiesPlus', label: '40대 이상' },
+];
+
+const surveySteps: {
+  key: SurveyStepKey;
   title: string;
-  description: string;
-  children: ReactNode;
+  subtitle: string;
+  helper?: string;
+}[] = [
+  {
+    key: 'age',
+    title: '연령대가\n어떻게 되시나요?',
+    subtitle: '안녕하세요, 투자자님!',
+  },
+  {
+    key: 'experience',
+    title: '투자 경험이\n있으신가요?',
+    subtitle: '답변에 맞춰 멘토의 설명 깊이를 조절할게요.',
+  },
+  {
+    key: 'risk',
+    title: '어느 정도의 리스크가\n편하신가요?',
+    subtitle: '시장 변동을 대하는 톤을 맞추기 위한 질문이에요.',
+  },
+  {
+    key: 'goal',
+    title: '이번 온보딩에서\n가장 얻고 싶은 것은?',
+    subtitle: '첫 주 학습 루틴과 콘텐츠 흐름을 여기에 맞춰 드릴게요.',
+  },
+  {
+    key: 'style',
+    title: '어떤 방식의 설명이\n편하신가요?',
+    subtitle: '멘토의 말투와 템포를 이 선호에 맞춰 볼게요.',
+  },
+  {
+    key: 'interests',
+    title: '관심 있는 투자 주제를\n골라주세요',
+    subtitle: '마지막 질문이에요.',
+    helper: '관심사는 여러 개 선택할 수 있어요.',
+  },
+];
+
+function OptionRow({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
 }) {
   return (
-    <View style={styles.sectionCard}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        <Text style={styles.sectionDescription}>{description}</Text>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.optionRow,
+        selected && styles.optionRowSelected,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={[styles.radioOuter, selected && styles.radioOuterSelected]}>
+        {selected ? <View style={styles.radioInner} /> : null}
       </View>
-      <View style={styles.optionGrid}>{children}</View>
-    </View>
+      <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{label}</Text>
+    </Pressable>
   );
+}
+
+function InterestChip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.interestChip,
+        selected && styles.interestChipSelected,
+        pressed && styles.pressed,
+      ]}
+    >
+      <Text style={[styles.interestChipLabel, selected && styles.interestChipLabelSelected]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+function getSingleSelectOptions(stepKey: SurveyStepKey): AgeOption[] | SelectOption<string>[] {
+  switch (stepKey) {
+    case 'age':
+      return ageOptions;
+    case 'experience':
+      return experienceLevelOptions;
+    case 'risk':
+      return riskProfileOptions;
+    case 'goal':
+      return learningGoalOptions;
+    case 'style':
+      return preferredStyleOptions;
+    default:
+      return [];
+  }
 }
 
 export function OnboardingScreen() {
   const accessToken = useUserStore((state) => state.accessToken);
   const finishOnboarding = useUserStore((state) => state.finishOnboarding);
+  const [ageRange, setAgeRange] = useState<AgeRange | null>(null);
   const [survey, setSurvey] = useState<OnboardingSurvey>(EMPTY_ONBOARDING_SURVEY);
-  const [step, setStep] = useState<'survey' | 'mentor'>('survey');
+  const [mode, setMode] = useState<'survey' | 'mentor'>('survey');
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [selectedMentorId, setSelectedMentorId] = useState<number | null>(null);
   const [remoteRecommendations, setRemoteRecommendations] = useState<MentorRecommendation[] | null>(
     null,
@@ -62,6 +171,11 @@ export function OnboardingScreen() {
 
   const localRecommendations = getRecommendedMentors(survey);
   const recommendations = remoteRecommendations ?? localRecommendations;
+  const currentStep = surveySteps[currentStepIndex];
+  const isMentorStep = mode === 'mentor';
+  const surveyReady = isSurveyComplete(survey);
+  const selectedMentor =
+    recommendations.find((mentor) => mentor.id === selectedMentorId) ?? recommendations[0] ?? null;
 
   const recommendationMutation = useMutation({
     mutationFn: saveOnboardingProfile,
@@ -86,17 +200,78 @@ export function OnboardingScreen() {
     },
   });
 
-  const surveyReady = isSurveyComplete(survey);
-  const selectedMentor =
-    recommendations.find((mentor) => mentor.id === selectedMentorId) ?? recommendations[0] ?? null;
+  function isCurrentStepComplete(): boolean {
+    switch (currentStep.key) {
+      case 'age':
+        return Boolean(ageRange);
+      case 'experience':
+        return Boolean(survey.experienceLevel);
+      case 'risk':
+        return Boolean(survey.riskProfile);
+      case 'goal':
+        return Boolean(survey.learningGoal);
+      case 'style':
+        return Boolean(survey.preferredStyle);
+      case 'interests':
+        return survey.interests.length > 0;
+      default:
+        return false;
+    }
+  }
 
-  const helperText = accessToken
-    ? '백엔드 온보딩 API와 연결된 상태입니다. 추천 결과는 서버 응답을 우선 사용하고, 실패하면 로컬 추천으로 이어집니다.'
-    : '지금은 로그인 없는 로컬 모드예요. 설문과 멘토 선택 흐름만 먼저 확인할 수 있습니다.';
+  function getSelectedSingleValue(): string | null {
+    switch (currentStep.key) {
+      case 'age':
+        return ageRange;
+      case 'experience':
+        return survey.experienceLevel;
+      case 'risk':
+        return survey.riskProfile;
+      case 'goal':
+        return survey.learningGoal;
+      case 'style':
+        return survey.preferredStyle;
+      default:
+        return null;
+    }
+  }
+
+  function handleSingleSelect(value: string) {
+    switch (currentStep.key) {
+      case 'age':
+        setAgeRange(value as AgeRange);
+        return;
+      case 'experience':
+        setSurvey((current) => ({
+          ...current,
+          experienceLevel: value as OnboardingSurvey['experienceLevel'],
+        }));
+        return;
+      case 'risk':
+        setSurvey((current) => ({
+          ...current,
+          riskProfile: value as OnboardingSurvey['riskProfile'],
+        }));
+        return;
+      case 'goal':
+        setSurvey((current) => ({
+          ...current,
+          learningGoal: value as OnboardingSurvey['learningGoal'],
+        }));
+        return;
+      case 'style':
+        setSurvey((current) => ({
+          ...current,
+          preferredStyle: value as OnboardingSurvey['preferredStyle'],
+        }));
+        return;
+      default:
+        return;
+    }
+  }
 
   async function handleShowMentors() {
     if (!surveyReady) {
-      setSubmitMessage('질문에 모두 답하면 멘토 추천을 시작할 수 있어요.');
       return;
     }
 
@@ -105,21 +280,23 @@ export function OnboardingScreen() {
 
     if (!accessToken) {
       setSelectedMentorId(localRecommendations[0]?.id ?? null);
-      setStep('mentor');
+      setMode('mentor');
       return;
     }
 
     try {
       const response = await recommendationMutation.mutateAsync(buildProfilePayload(survey));
       const nextRecommendations = buildRecommendedMentorsFromApi(response.recommended_mentors);
-      setRemoteRecommendations(nextRecommendations);
-      setSelectedMentorId(nextRecommendations[0]?.id ?? null);
-      setStep('mentor');
-      setSubmitMessage('서버 추천 결과를 기준으로 멘토 목록을 불러왔어요.');
+      const fallbackRecommendations =
+        nextRecommendations.length > 0 ? nextRecommendations : localRecommendations;
+
+      setRemoteRecommendations(nextRecommendations.length > 0 ? nextRecommendations : null);
+      setSelectedMentorId(fallbackRecommendations[0]?.id ?? null);
+      setMode('mentor');
     } catch {
       setSelectedMentorId(localRecommendations[0]?.id ?? null);
-      setStep('mentor');
-      setSubmitMessage('서버 추천을 불러오지 못해 로컬 추천으로 이어갑니다.');
+      setMode('mentor');
+      setSubmitMessage('서버 추천을 불러오지 못해 로컬 추천 결과로 이어서 보여드릴게요.');
     }
   }
 
@@ -129,7 +306,6 @@ export function OnboardingScreen() {
     }
 
     let syncState: OnboardingSyncState = 'local';
-    setSubmitMessage(null);
 
     try {
       const result = await submitMutation.mutateAsync({
@@ -137,12 +313,8 @@ export function OnboardingScreen() {
         mentorId: selectedMentor.id,
       });
       syncState = result.syncState;
-      if (syncState === 'remote') {
-        setSubmitMessage('서버 스펙에 맞춰 프로필과 멘토 선택까지 저장했어요.');
-      }
     } catch {
       syncState = 'local';
-      setSubmitMessage('현재 서버 연결이 불안정해서 로컬 완료 상태로 이어갑니다.');
     }
 
     finishOnboarding({
@@ -151,325 +323,422 @@ export function OnboardingScreen() {
     });
   }
 
+  function handleBack() {
+    if (isMentorStep) {
+      setMode('survey');
+      return;
+    }
+
+    setSubmitMessage(null);
+    setCurrentStepIndex((current) => Math.max(0, current - 1));
+  }
+
+  function handlePrimaryAction() {
+    if (!isCurrentStepComplete()) {
+      return;
+    }
+
+    if (currentStepIndex === surveySteps.length - 1) {
+      void handleShowMentors();
+      return;
+    }
+
+    setCurrentStepIndex((current) => Math.min(current + 1, surveySteps.length - 1));
+  }
+
+  const helperText = accessToken
+    ? '서버 추천 결과를 우선 보여드리고, 선택을 완료하면 실제 온보딩 API에도 저장해요.'
+    : '지금은 로컬 미리보기 모드예요. 설문 흐름과 멘토 추천만 먼저 확인할 수 있어요.';
+
+  const primaryButtonLabel =
+    currentStepIndex === surveySteps.length - 1 ? '추천 멘토 보기' : '다음';
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.heroCard}>
-        <Text style={styles.eyebrow}>Mentors Onboarding</Text>
-        <Text style={styles.heroTitle}>나한테 맞는 첫 멘토를 먼저 골라볼게요.</Text>
-        <Text style={styles.heroDescription}>
-          설문 응답을 바탕으로 투자 스타일에 맞는 멘토를 추천하고, 선택이 끝나면 T1부터
-          바로 시작할 수 있게 연결해 둔 흐름입니다.
-        </Text>
-        <View style={styles.stepRow}>
-          <View style={[styles.stepBadge, styles.stepBadgeActive]}>
-            <Text style={[styles.stepBadgeText, styles.stepBadgeTextActive]}>1. 성향 설문</Text>
-          </View>
-          <View
-            style={[
-              styles.stepBadge,
-              step === 'mentor' ? styles.stepBadgeActive : styles.stepBadgeIdle,
-            ]}
-          >
-            <Text
-              style={[
-                styles.stepBadgeText,
-                step === 'mentor' ? styles.stepBadgeTextActive : styles.stepBadgeTextIdle,
-              ]}
-            >
-              2. 멘토 선택
-            </Text>
-          </View>
+    <SafeAreaView style={styles.screen}>
+      <View style={styles.header}>
+        <View style={styles.headerTopRow}>
+          {isMentorStep || currentStepIndex > 0 ? (
+            <Pressable onPress={handleBack} hitSlop={10} style={styles.backButton}>
+              <Text style={styles.backButtonText}>←</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.backButtonPlaceholder} />
+          )}
+          <Text style={styles.headerStepText}>
+            {isMentorStep
+              ? '멘토 선택'
+              : getOnboardingStepLabel(currentStepIndex, ONBOARDING_STEP_COUNT)}
+          </Text>
         </View>
+        {!isMentorStep ? (
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${getOnboardingProgressValue(currentStepIndex, ONBOARDING_STEP_COUNT) * 100}%`,
+                },
+              ]}
+            />
+          </View>
+        ) : null}
       </View>
 
-      <DevAccessTokenCard />
-
-      {step === 'survey' ? (
-        <>
-          <Section title="현재 투자 경험" description="멘토가 설명 깊이를 조절하는 기준이 됩니다.">
-            {experienceLevelOptions.map((option) => (
-              <SelectionChip
-                key={option.value}
-                label={option.label}
-                description={option.description}
-                selected={survey.experienceLevel === option.value}
-                onPress={() =>
-                  setSurvey((current) => ({ ...current, experienceLevel: option.value }))
-                }
-              />
-            ))}
-          </Section>
-
-          <Section title="관심 있는 주제" description="복수 선택이 가능합니다.">
-            {interestOptions.map((option) => (
-              <SelectionChip
-                key={option.value}
-                label={option.label}
-                description={option.description}
-                selected={survey.interests.includes(option.value)}
-                onPress={() =>
-                  setSurvey((current) => ({
-                    ...current,
-                    interests: toggleInterest(current.interests, option.value),
-                  }))
-                }
-              />
-            ))}
-          </Section>
-
-          <Section title="리스크 성향" description="어느 정도 변동성을 감수할지의 기준입니다.">
-            {riskProfileOptions.map((option) => (
-              <SelectionChip
-                key={option.value}
-                label={option.label}
-                description={option.description}
-                selected={survey.riskProfile === option.value}
-                onPress={() => setSurvey((current) => ({ ...current, riskProfile: option.value }))}
-              />
-            ))}
-          </Section>
-
-          <Section title="이번 온보딩의 목표" description="첫 1주 동안 무엇을 배우고 싶은지 고릅니다.">
-            {learningGoalOptions.map((option) => (
-              <SelectionChip
-                key={option.value}
-                label={option.label}
-                description={option.description}
-                selected={survey.learningGoal === option.value}
-                onPress={() =>
-                  setSurvey((current) => ({ ...current, learningGoal: option.value }))
-                }
-              />
-            ))}
-          </Section>
-
-          <Section title="원하는 코칭 스타일" description="멘토의 설명 톤과 템포를 맞춥니다.">
-            {preferredStyleOptions.map((option) => (
-              <SelectionChip
-                key={option.value}
-                label={option.label}
-                description={option.description}
-                selected={survey.preferredStyle === option.value}
-                onPress={() =>
-                  setSurvey((current) => ({ ...current, preferredStyle: option.value }))
-                }
-              />
-            ))}
-          </Section>
-
-          <View style={styles.footerCard}>
-            <Text style={styles.helperText}>{helperText}</Text>
-            <Pressable
-              onPress={handleShowMentors}
-              style={[
-                styles.primaryButton,
-                (!surveyReady || recommendationMutation.isPending) && styles.primaryButtonDisabled,
-              ]}
+      <View style={styles.sheet}>
+        {isMentorStep ? (
+          <>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
             >
-              <Text style={styles.primaryButtonText}>
-                {recommendationMutation.isPending ? '추천 불러오는 중...' : '추천 멘토 보기'}
-              </Text>
-            </Pressable>
-            {submitMessage ? <Text style={styles.noticeText}>{submitMessage}</Text> : null}
-          </View>
-        </>
-      ) : (
-        <>
-          <View style={styles.sectionCard}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>추천 멘토</Text>
-              <Text style={styles.sectionDescription}>
-                로그인 상태라면 백엔드 추천 결과를 그대로 사용하고, 아니면 프론트 fallback
-                추천을 보여줍니다.
-              </Text>
-            </View>
-            <View style={styles.mentorList}>
-              {recommendations.map((mentor) => (
-                <MentorRecommendationCard
-                  key={mentor.id}
-                  mentor={mentor}
-                  selected={selectedMentor?.id === mentor.id}
-                  onPress={() => setSelectedMentorId(mentor.id)}
-                />
-              ))}
-            </View>
-          </View>
+              <Text style={styles.subtitle}>답변을 바탕으로 준비했어요</Text>
+              <Text style={styles.title}>같이 시작할 멘토를 골라볼까요?</Text>
+              <Text style={styles.helperText}>{helperText}</Text>
 
-          <View style={styles.footerCard}>
-            <Text style={styles.helperText}>{helperText}</Text>
-            {submitMutation.isPending ? (
-              <View style={styles.pendingRow}>
-                <ActivityIndicator color={colors.primary} />
-                <Text style={styles.pendingText}>멘토 선택 내용을 저장하고 있어요.</Text>
+              {submitMessage ? (
+                <View style={styles.noticeBanner}>
+                  <Text style={styles.noticeBannerText}>{submitMessage}</Text>
+                </View>
+              ) : null}
+
+              {recommendationMutation.isPending ? (
+                <View style={styles.loadingRow}>
+                  <ActivityIndicator color={colors.primary} />
+                  <Text style={styles.loadingText}>추천 멘토를 불러오는 중이에요.</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.mentorList}>
+                {recommendations.map((mentor) => (
+                  <MentorRecommendationCard
+                    key={mentor.id}
+                    mentor={mentor}
+                    selected={selectedMentor?.id === mentor.id}
+                    onPress={() => setSelectedMentorId(mentor.id)}
+                  />
+                ))}
               </View>
-            ) : null}
-            <View style={styles.actionRow}>
-              <Pressable
-                onPress={() => {
-                  setRemoteRecommendations(null);
-                  setStep('survey');
-                }}
-                style={[styles.secondaryButton, styles.actionButton]}
-              >
+
+              <DevAccessTokenCard />
+            </ScrollView>
+
+            <View style={styles.footerRow}>
+              <Pressable onPress={handleBack} style={[styles.secondaryButton, styles.footerAction]}>
                 <Text style={styles.secondaryButtonText}>응답 수정</Text>
               </Pressable>
-              <Pressable onPress={handleFinish} style={[styles.primaryButton, styles.actionButton]}>
-                <Text style={styles.primaryButtonText}>이 멘토로 시작하기</Text>
+              <Pressable
+                onPress={() => {
+                  void handleFinish();
+                }}
+                style={[
+                  styles.primaryButton,
+                  styles.footerAction,
+                  (submitMutation.isPending || !selectedMentor) && styles.buttonDisabled,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {submitMutation.isPending ? '저장 중...' : '이 멘토로 시작하기'}
+                </Text>
               </Pressable>
             </View>
-            {submitMessage ? <Text style={styles.noticeText}>{submitMessage}</Text> : null}
-          </View>
-        </>
-      )}
-    </ScrollView>
+          </>
+        ) : (
+          <>
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.subtitle}>{currentStep.subtitle}</Text>
+              <Text style={styles.title}>{currentStep.title}</Text>
+              {currentStep.helper ? (
+                <Text style={styles.helperText}>{currentStep.helper}</Text>
+              ) : null}
+
+              {currentStep.key === 'interests' ? (
+                <View style={styles.interestWrap}>
+                  {interestOptions.map((option) => (
+                    <InterestChip
+                      key={option.value}
+                      label={option.label}
+                      selected={survey.interests.includes(option.value)}
+                      onPress={() =>
+                        setSurvey((current) => ({
+                          ...current,
+                          interests: toggleInterest(current.interests, option.value),
+                        }))
+                      }
+                    />
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.optionList}>
+                  {getSingleSelectOptions(currentStep.key).map((option) => (
+                    <OptionRow
+                      key={option.value}
+                      label={option.label}
+                      selected={getSelectedSingleValue() === option.value}
+                      onPress={() => handleSingleSelect(option.value)}
+                    />
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.footer}>
+              <Pressable
+                onPress={handlePrimaryAction}
+                style={[
+                  styles.primaryButton,
+                  (!isCurrentStepComplete() || recommendationMutation.isPending) &&
+                    styles.buttonDisabled,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>
+                  {recommendationMutation.isPending
+                    ? '추천 멘토 불러오는 중...'
+                    : primaryButtonLabel}
+                </Text>
+              </Pressable>
+            </View>
+          </>
+        )}
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    gap: 16,
-    backgroundColor: colors.background,
+  screen: {
+    flex: 1,
+    backgroundColor: colors.primary,
   },
-  heroCard: {
-    borderRadius: 28,
-    backgroundColor: colors.text,
-    padding: 22,
-    gap: 12,
+  header: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 24,
+    paddingTop: 8,
+    paddingBottom: 16,
   },
-  eyebrow: {
-    color: colors.accent,
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  heroTitle: {
-    color: colors.surface,
-    fontSize: 30,
-    fontWeight: '800',
-    lineHeight: 36,
-  },
-  heroDescription: {
-    color: '#D9DEE7',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  stepRow: {
+  headerTopRow: {
+    alignItems: 'center',
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+    justifyContent: 'space-between',
+    minHeight: 40,
   },
-  stepBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  backButton: {
+    alignItems: 'center',
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
   },
-  stepBadgeActive: {
-    backgroundColor: colors.accent,
+  backButtonPlaceholder: {
+    height: 32,
+    width: 32,
   },
-  stepBadgeIdle: {
-    backgroundColor: '#2D3747',
-  },
-  stepBadgeText: {
-    fontSize: 12,
-    fontWeight: '800',
-  },
-  stepBadgeTextActive: {
-    color: colors.text,
-  },
-  stepBadgeTextIdle: {
+  backButtonText: {
     color: colors.surface,
+    fontSize: 24,
+    lineHeight: 24,
   },
-  sectionCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
+  headerStepText: {
+    color: '#CCF2DE',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  progressTrack: {
+    backgroundColor: 'rgba(255,255,255,0.32)',
+    borderRadius: 999,
+    height: 4,
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  progressFill: {
     backgroundColor: colors.surface,
-    padding: 18,
-    gap: 16,
+    borderRadius: 999,
+    height: '100%',
   },
-  sectionHeader: {
-    gap: 6,
+  sheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    flex: 1,
+    marginTop: -8,
+    overflow: 'hidden',
   },
-  sectionTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: '800',
+  scrollContent: {
+    gap: 20,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 28,
   },
-  sectionDescription: {
+  subtitle: {
     color: colors.muted,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
   },
-  optionGrid: {
-    gap: 12,
-  },
-  mentorList: {
-    gap: 12,
-  },
-  footerCard: {
-    borderRadius: 24,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 18,
-    gap: 14,
+  title: {
+    color: colors.text,
+    fontSize: 22,
+    fontWeight: '700',
+    lineHeight: 32,
   },
   helperText: {
     color: colors.muted,
     fontSize: 14,
-    lineHeight: 21,
+    lineHeight: 20,
   },
-  actionRow: {
+  optionList: {
+    gap: 10,
+    marginTop: 12,
+  },
+  optionRow: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  optionRowSelected: {
+    borderColor: colors.primary,
+  },
+  radioOuter: {
+    alignItems: 'center',
+    backgroundColor: '#E9ECE8',
+    borderRadius: 999,
+    height: 20,
+    justifyContent: 'center',
+    width: 20,
+  },
+  radioOuterSelected: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+    borderWidth: 1,
+  },
+  radioInner: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    height: 8,
+    width: 8,
+  },
+  optionLabel: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  optionLabelSelected: {
+    fontWeight: '600',
+  },
+  interestWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 12,
+  },
+  interestChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  interestChipSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  interestChipLabel: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  interestChipLabelSelected: {
+    color: colors.surface,
+  },
+  mentorList: {
+    gap: 12,
+    marginTop: 4,
+  },
+  noticeBanner: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  noticeBannerText: {
+    color: colors.text,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  loadingRow: {
+    alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
   },
-  actionButton: {
+  loadingText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  footer: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    paddingTop: 8,
+  },
+  footerRow: {
+    backgroundColor: colors.surface,
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+    paddingTop: 8,
+  },
+  footerAction: {
     flex: 1,
   },
   primaryButton: {
     alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
     backgroundColor: colors.primary,
-    minHeight: 54,
-    paddingHorizontal: 16,
+    borderRadius: 14,
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingHorizontal: 20,
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
   },
-  primaryButtonDisabled: {
+  secondaryButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 52,
+    paddingHorizontal: 20,
+  },
+  buttonDisabled: {
     opacity: 0.45,
   },
   primaryButtonText: {
     color: colors.surface,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  secondaryButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
-    backgroundColor: colors.accentSoft,
-    minHeight: 54,
-    paddingHorizontal: 16,
+    fontSize: 16,
+    fontWeight: '700',
   },
   secondaryButtonText: {
     color: colors.text,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  noticeText: {
-    color: colors.rose,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  pendingRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 10,
-  },
-  pendingText: {
-    color: colors.text,
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.9,
   },
 });

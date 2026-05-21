@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const {
   buildRecommendedMentorsFromApi,
   buildProfilePayload,
+  getOnboardingProgressValue,
+  getOnboardingStepLabel,
   getRecommendedMentors,
   isSurveyComplete,
 } = require('../.tmp-onboarding/logic.js');
@@ -26,13 +28,13 @@ assert.equal(
 
 assert.equal(isSurveyComplete(survey), true, 'survey with all answers should be complete');
 
+assert.equal(getOnboardingStepLabel(0), '1 / 6');
+assert.equal(getOnboardingStepLabel(5), '6 / 6');
+assert.equal(getOnboardingProgressValue(2), 0.5);
+
 const [firstMentor] = getRecommendedMentors(survey);
 
-assert.equal(
-  firstMentor.id,
-  1,
-  'a cautious beginner should be matched with mentor id 1 first',
-);
+assert.equal(firstMentor.id, 1, 'a cautious beginner should be matched with mentor id 1 first');
 
 assert.equal(
   firstMentor.name,

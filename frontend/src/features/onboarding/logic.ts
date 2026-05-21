@@ -22,6 +22,8 @@ type CompletedSurvey = Omit<
   'completedAt' | 'selectedMentorId' | 'syncState'
 >;
 
+export const ONBOARDING_STEP_COUNT = 6;
+
 export const EMPTY_ONBOARDING_SURVEY: OnboardingSurvey = {
   experienceLevel: null,
   interests: [],
@@ -36,6 +38,30 @@ export function toggleInterest(interests: InterestTag[], interest: InterestTag):
   }
 
   return [...interests, interest];
+}
+
+export function getOnboardingStepLabel(
+  stepIndex: number,
+  totalSteps = ONBOARDING_STEP_COUNT,
+): string {
+  if (totalSteps <= 0) {
+    return '0 / 0';
+  }
+
+  const currentStep = Math.min(totalSteps, Math.max(1, stepIndex + 1));
+  return `${currentStep} / ${totalSteps}`;
+}
+
+export function getOnboardingProgressValue(
+  stepIndex: number,
+  totalSteps = ONBOARDING_STEP_COUNT,
+): number {
+  if (totalSteps <= 0) {
+    return 0;
+  }
+
+  const currentStep = Math.min(totalSteps, Math.max(1, stepIndex + 1));
+  return currentStep / totalSteps;
 }
 
 export function isSurveyComplete(survey: OnboardingSurvey): survey is CompletedSurvey {

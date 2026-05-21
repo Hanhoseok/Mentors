@@ -12,17 +12,17 @@ export const experienceLevelOptions: SelectOption<ExperienceLevel>[] = [
   {
     value: 'beginner',
     label: '완전 입문',
-    description: '용어가 아직 낯설고, 천천히 기초부터 잡고 싶어요.',
+    description: '용어가 아직 낯설고 차근차근 기초부터 쌓고 싶어요.',
   },
   {
     value: 'exploring',
     label: '탐색 중',
-    description: '기사나 차트를 조금 보지만 아직 내 기준은 없어요.',
+    description: '기사와 차트를 조금 보지만 아직 나만의 기준은 없어요.',
   },
   {
     value: 'confident',
     label: '직접 판단 가능',
-    description: '이미 관심 종목과 시장 이슈를 스스로 찾아보고 있어요.',
+    description: '관심 종목과 시장 이슈를 스스로 찾아보며 비교하고 있어요.',
   },
 ];
 
@@ -30,17 +30,17 @@ export const interestOptions: SelectOption<InterestTag>[] = [
   {
     value: 'macro',
     label: '거시 흐름',
-    description: '금리, 환율, 경기 같은 큰 흐름을 이해하고 싶어요.',
+    description: '금리, 환율, 경기 흐름 같은 큰 맥락을 이해하고 싶어요.',
   },
   {
     value: 'dividend',
     label: '배당과 현금흐름',
-    description: '꾸준한 현금흐름과 안정성을 먼저 보고 싶어요.',
+    description: '꾸준한 현금흐름과 안정적인 투자 습관을 먼저 만들고 싶어요.',
   },
   {
     value: 'value',
     label: '가치 판단',
-    description: '좋은 회사를 싸게 사는 기준을 배우고 싶어요.',
+    description: '좋은 회사를 어떻게 찾는지 기업의 본질부터 배우고 싶어요.',
   },
   {
     value: 'tech',
@@ -49,8 +49,8 @@ export const interestOptions: SelectOption<InterestTag>[] = [
   },
   {
     value: 'etf',
-    label: 'ETF와 분산',
-    description: '한 종목보다 포트폴리오 전체를 안정적으로 짜고 싶어요.',
+    label: 'ETF·분산',
+    description: '개별 종목보다 포트폴리오 전체를 안정적으로 보고 싶어요.',
   },
   {
     value: 'global',
@@ -60,16 +60,20 @@ export const interestOptions: SelectOption<InterestTag>[] = [
 ];
 
 export const riskProfileOptions: SelectOption<RiskProfile>[] = [
-  { value: 'steady', label: '안정 우선', description: '손실을 크게 피하면서 천천히 가고 싶어요.' },
+  {
+    value: 'steady',
+    label: '안정 우선',
+    description: '크게 흔들리지 않으면서 천천히 가고 싶어요.',
+  },
   {
     value: 'balanced',
     label: '균형 추구',
-    description: '안정성과 기회를 적절히 함께 보고 싶어요.',
+    description: '안정감과 기회를 적절하게 함께 보고 싶어요.',
   },
   {
     value: 'bold',
     label: '기회 선호',
-    description: '변동성이 있어도 성장을 더 빠르게 보고 싶어요.',
+    description: '변동성이 있어도 성장 가능성을 더 빠르게 보고 싶어요.',
   },
 ];
 
@@ -86,8 +90,8 @@ export const learningGoalOptions: SelectOption<LearningGoal>[] = [
   },
   {
     value: 'find-style',
-    label: '내 스타일 찾기',
-    description: '어떤 투자 방식이 나와 맞는지 탐색하고 싶어요.',
+    label: '내 투자 스타일 찾기',
+    description: '어떤 투자 방식이 나에게 맞는지 탐색하고 싶어요.',
   },
 ];
 
@@ -100,12 +104,12 @@ export const preferredStyleOptions: SelectOption<PreferredStyle>[] = [
   {
     value: 'structured',
     label: '체계적으로',
-    description: '원리, 체크포인트, 다음 액션이 분명하면 좋아요.',
+    description: '정리, 체크포인트, 다음 액션이 분명하면 좋아요.',
   },
   {
     value: 'challenging',
     label: '단단하게',
-    description: '생각할 거리를 던져주고 조금은 밀어붙여도 괜찮아요.',
+    description: '생각할 거리를 던져 주고 조금 더 밀어붙여도 괜찮아요.',
   },
 ];
 
@@ -115,16 +119,17 @@ export const mentorCatalog: MentorProfile[] = [
     slug: 'warren-buffett',
     name: 'Warren Buffett',
     title: 'Value Investing Mentor',
-    oneLiner: '장기 복리, 기업 가치, 기다림의 힘을 기초부터 차분히 잡아주는 멘토',
-    philosophy: '좋은 기업을 이해한 뒤 오래 들고 가는 힘이 결국 큰 차이를 만든다고 봅니다.',
-    idealFor: '안정적으로 투자 기초를 쌓고 장기 관점의 판단 기준을 만들고 싶은 사용자',
-    accentColor: '#0D6A57',
+    oneLiner: '장기 복리와 기업 가치의 기본을 차분히 잡아주는 가치투자 멘토',
+    philosophy:
+      '좋은 기업을 제대로 이해하고 오래 보유하는 태도가 결국 복리의 차이를 만든다고 봅니다.',
+    idealFor: '안정적인 투자 기초를 쌓고 장기 관점의 판단 기준을 만들고 싶은 사용자',
+    accentColor: '#2D6A4F',
     focusTags: ['dividend', 'value', 'etf', 'macro'],
     experienceMatch: ['beginner', 'exploring'],
     riskMatch: ['steady', 'balanced'],
     styleMatch: ['gentle', 'structured'],
     goalMatch: ['build-habit', 'understand-news'],
-    strengths: ['가치 투자 기초', '장기 복리 관점', '안정적인 투자 습관'],
+    strengths: ['가치투자 기초', '장기 복리 관점', '안정적인 투자 습관'],
   },
   {
     id: 2,
@@ -147,8 +152,8 @@ export const mentorCatalog: MentorProfile[] = [
     slug: 'ray-dalio',
     name: 'Ray Dalio',
     title: 'Macro and Portfolio Mentor',
-    oneLiner: '거시 흐름, 분산, 포트폴리오 관점을 구조적으로 설명해주는 멘토',
-    philosophy: '개별 종목보다 먼저 큰 흐름과 자산 배분을 읽으면 흔들림이 줄어든다고 봅니다.',
+    oneLiner: '거시 흐름과 분산 관점을 구조적으로 설명해 주는 포트폴리오 멘토',
+    philosophy: '개별 종목보다 먼저 큰 흐름과 자산 배분을 이해하면 흔들림이 줄어든다고 봅니다.',
     idealFor: '뉴스 해석과 분산 투자 기준을 함께 세우고 싶은 사용자',
     accentColor: '#355CDE',
     focusTags: ['macro', 'etf', 'global', 'value'],
