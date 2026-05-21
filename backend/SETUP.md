@@ -63,8 +63,41 @@ uv run pytest -q
   1. AGENTS.md 정독 (매 작업 시작 시 read하는 운영 룰)
   2. 시범 PR 코드 정독: features/daily_report/
   3. 자기 동 폴더(features/<자기-동>/) 첫 작업 시작
-부팅: uv run uvicorn main:app --reload
+부팅 (Linux/Mac): uv run uvicorn main:app --reload
+부팅 (Windows):   uv run python dev_server.py   ← Windows는 wrapper 필수, 아래 부록 참고
 ```
+
+---
+
+## 부록 — Windows 개발 환경 함정 (필독)
+
+Windows + Docker Desktop 조합에서 발생하는 두 가지 트랩과 그 우회법. macOS/Linux는 영향 없음.
+
+### 1. `localhost` → IPv6 우선 → 컨테이너 도달 실패
+
+Windows는 `localhost`를 IPv6 `::1`로 먼저 resolve하지만, Docker Desktop의 컨테이너는 IPv4 `127.0.0.1`에만 바인딩됨. 결과: TCP 연결 reset, "connection was closed in the middle of operation" 류 에러.
+
+**해결**: `.env`에 호스트값을 **`127.0.0.1`로 명시**. `.env.example`은 이미 그렇게 설정됨 — 복사만 하면 됨. Linux/Mac에서도 안전.
+
+### 2. `psycopg` (async) ↔ `ProactorEventLoop` 비호환
+
+Windows의 기본 asyncio 이벤트 루프는 ProactorEventLoop인데, `psycopg` async는 **명시적으로 SelectorEventLoop만 지원**. uvicorn cli는 OS 기본 루프를 따라가서 ProactorEventLoop을 만나면 즉시 실패.
+
+**해결**: `uvicorn main:app` 대신 **`uv run python dev_server.py`** 사용. `dev_server.py`가 `asyncio.run(loop_factory=...)`로 SelectorEventLoop을 강제하고 그 안에서 uvicorn을 띄움. Linux/Mac에선 그냥 평소대로 `uvicorn main:app` 써도 됨 (dev_server.py도 OS 분기로 동일 동작).
+
+### 3. dev login (OAuth 우회)
+
+`ENV=dev`일 때 활성화되는 직접 로그인 엔드포인트:
+```
+POST /auth/dev/login
+{ "email": "me@test.com" }
+→ { "access_token": "...", "expires_in": 86400 }
+```
+브라우저 OAuth 거치지 않고 smoke client/통합 테스트에서 사용. 운영(`ENV=prod`)에선 403.
+
+### 4. smoke client (`_smoke/index.html`)
+
+`ENV=dev`에서 `http://127.0.0.1:8000/_smoke/`로 서빙됨 (FastAPI static mount). 채팅·퀴즈·커리큘럼을 같은 origin에서 시각 검증 가능. 별도 빌드 불필요.
 
 ---
 

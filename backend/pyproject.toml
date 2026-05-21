@@ -34,6 +34,7 @@ dependencies = [
     "firebase-admin>=6.6",
     # Logging
     "python-json-logger>=2.0",
+    "psycopg[binary]>=3.3.4",
 ]
 
 [dependency-groups]
@@ -81,4 +82,8 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# 세션 전역 이벤트 루프 공유 — asyncpg connection pool이 테스트 간 같은 loop를 잡고 있도록.
+# 이걸 안 두면 DB fixture 사용 시 "Event loop is closed" 에러.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]

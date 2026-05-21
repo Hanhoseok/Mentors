@@ -11,7 +11,7 @@ from core.config import settings
 from core.contracts import UserId, UserSignedUpEvent
 from core.db import get_db
 from core.event_bus import event_bus
-from core.exceptions import UnauthorizedError
+from core.exceptions import ForbiddenError, UnauthorizedError
 
 from .dependencies import get_current_user
 from .jwt import create_access_token
@@ -115,6 +115,47 @@ async def _upsert_user(db: AsyncSession, info: GoogleUserInfo) -> tuple[User, bo
     await db.commit()
     await db.refresh(user)
     return user, True
+
+
+class DevLoginReq(BaseModel):
+    email: str
+    nickname: str | None = None
+
+
+@router.post("/dev/login", response_model=TokenResponse)
+async def dev_login(
+    req: DevLoginReq,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """dev 환경 전용 직접 로그인 — Google OAuth 건너뛰고 email만으로 JWT 발급.
+
+    설정: `ENV=dev` (기본값)일 때만 활성. 운영(`ENV=prod`)에선 403.
+    smoke client/통합 테스트/개발 디버깅용으로만 사용.
+    """
+    if settings.env != "dev":
+        raise ForbiddenError("dev login is disabled in this environment")
+
+    stmt = select(User).where(User.email == req.email)
+    user = (await db.execute(stmt)).scalar_one_or_none()
+    is_new = False
+    if user is None:
+        user = User(
+            email=req.email,
+            nickname=req.nickname or req.email.split("@")[0],
+            status="active",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        is_new = True
+        await event_bus.publish(UserSignedUpEvent(user_id=UserId(user.id)))
+
+    token = create_access_token(user.id)
+    logger.info("dev_login", extra={"user_id": user.id, "is_new": is_new})
+    return TokenResponse(
+        access_token=token,
+        expires_in=settings.jwt_expire_minutes * 60,
+    )
 
 
 @router.get("/me", response_model=UserResponse)

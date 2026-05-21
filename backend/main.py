@@ -1,8 +1,15 @@
 import asyncio
 import json
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+# Windows에서 psycopg async는 ProactorEventLoop과 비호환. SelectorEventLoopPolicy로 강제.
+# Linux/Mac은 영향 없음. (Python 3.16에서 set_event_loop_policy deprecation 예정 —
+# 그때는 uvicorn의 loop_factory 옵션으로 전환)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -75,6 +82,17 @@ app.include_router(growth_router)
 app.include_router(debate_router)
 app.include_router(content_router)
 app.include_router(daily_report_router)
+
+# dev 전용 smoke client mount — http://127.0.0.1:8000/_smoke/ 에서 같은 origin으로 접속.
+# CORS 회피 + 토큰 발급 흐름 한 페이지에서 시각적으로 검증.
+if settings.env == "dev":
+    from pathlib import Path
+
+    from fastapi.staticfiles import StaticFiles
+
+    _smoke_dir = Path(__file__).parent / "_smoke"
+    if _smoke_dir.is_dir():
+        app.mount("/_smoke", StaticFiles(directory=str(_smoke_dir), html=True), name="smoke")
 
 
 @app.get("/health")
