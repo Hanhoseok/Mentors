@@ -1,9 +1,10 @@
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.cache import make_cache
@@ -11,7 +12,7 @@ from core.config import settings
 from core.contracts import UserId, UserSignedUpEvent
 from core.db import get_db
 from core.event_bus import event_bus
-from core.exceptions import UnauthorizedError
+from core.exceptions import ForbiddenError, UnauthorizedError
 
 from .dependencies import get_current_user
 from .jwt import create_access_token
@@ -52,6 +53,16 @@ class UserResponse(BaseModel):
         )
 
 
+class DevTokenRequest(BaseModel):
+    email: str | None = None
+    nickname: str | None = None
+
+
+class DevTokenResponse(TokenResponse):
+    user: UserResponse
+    created: bool
+
+
 @router.get("/google/login")
 async def google_login() -> RedirectResponse:
     state = generate_state()
@@ -85,6 +96,40 @@ async def google_callback(
     )
 
 
+@router.post("/dev-token", response_model=DevTokenResponse)
+async def issue_dev_token(
+    req: DevTokenRequest,
+    db: AsyncSession = Depends(get_db),
+) -> DevTokenResponse:
+    if settings.env != "dev":
+        raise ForbiddenError("Development token endpoint is disabled.")
+
+    email = req.email or f"dev+{uuid4().hex[:12]}@local.test"
+    nickname = req.nickname or f"dev-{email.split('@')[0].split('+')[-1][:6]}"
+    user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
+    created = False
+
+    if user is None:
+        await _sync_pk_sequence(db, table_name="users", sequence_name="users_id_seq")
+        user = User(
+            email=email,
+            nickname=nickname,
+            status="active",
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+        created = True
+
+    token = create_access_token(user.id)
+    return DevTokenResponse(
+        access_token=token,
+        expires_in=settings.jwt_expire_minutes * 60,
+        user=UserResponse.from_user(user),
+        created=created,
+    )
+
+
 async def _upsert_user(db: AsyncSession, info: GoogleUserInfo) -> tuple[User, bool]:
     stmt = select(AuthIdentity).where(
         AuthIdentity.provider == "google",
@@ -98,6 +143,7 @@ async def _upsert_user(db: AsyncSession, info: GoogleUserInfo) -> tuple[User, bo
             raise UnauthorizedError("Identity exists but user missing")
         return user, False
 
+    await _sync_pk_sequence(db, table_name="users", sequence_name="users_id_seq")
     user = User(
         email=info.email,
         nickname=info.name or info.email.split("@")[0],
@@ -106,6 +152,11 @@ async def _upsert_user(db: AsyncSession, info: GoogleUserInfo) -> tuple[User, bo
     db.add(user)
     await db.flush()
 
+    await _sync_pk_sequence(
+        db,
+        table_name="auth_identities",
+        sequence_name="auth_identities_id_seq",
+    )
     new_identity = AuthIdentity(
         user_id=user.id,
         provider="google",
@@ -115,6 +166,25 @@ async def _upsert_user(db: AsyncSession, info: GoogleUserInfo) -> tuple[User, bo
     await db.commit()
     await db.refresh(user)
     return user, True
+
+
+async def _sync_pk_sequence(
+    db: AsyncSession,
+    *,
+    table_name: str,
+    sequence_name: str,
+) -> None:
+    await db.execute(
+        text(
+            f"""
+            SELECT setval(
+                '{sequence_name}',
+                COALESCE((SELECT MAX(id) FROM {table_name}), 1),
+                EXISTS (SELECT 1 FROM {table_name})
+            )
+            """
+        )
+    )
 
 
 @router.get("/me", response_model=UserResponse)

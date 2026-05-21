@@ -11,6 +11,33 @@ const unlockLabels: Record<string, string> = {
   extra_mentors: '추가 멘토 해금',
 };
 
+export type LearningRecordSegmentKey = 'reports' | 'quizzes' | 'arenas';
+
+export function getLearningRecordSegments(counts: {
+  reports: number;
+  quizzes: number;
+  arenas: number;
+}): { key: LearningRecordSegmentKey; label: string }[] {
+  return [
+    { key: 'reports', label: `리포트 ${counts.reports}` },
+    { key: 'quizzes', label: `퀴즈 ${counts.quizzes}` },
+    { key: 'arenas', label: `투기장 ${counts.arenas}` },
+  ];
+}
+
+export function getLearningRecordHintMessage(segment: LearningRecordSegmentKey): string {
+  switch (segment) {
+    case 'reports':
+      return '이해도 칩을 탭하면 다시 수정할 수 있어요';
+    case 'quizzes':
+      return '문항을 탭하면 풀이와 결과를 다시 볼 수 있어요';
+    case 'arenas':
+      return '대결 기록을 탭하면 토론 주제를 다시 볼 수 있어요';
+    default:
+      return '';
+  }
+}
+
 export function isPromotionTestComplete(
   questions: PromotionTestQuestion[],
   answersByQuestionId: Record<string, string>,
@@ -44,6 +71,22 @@ export function buildPromotionTestPayload(
 
 export function getUnlockLabel(code: string): string {
   return unlockLabels[code] ?? code.replace(/_/g, ' ');
+}
+
+export function didGrowthProgressAdvance(
+  previous: GrowthProgressResponse | null,
+  next: GrowthProgressResponse | null,
+): boolean {
+  if (!previous || !next) {
+    return false;
+  }
+
+  return (
+    next.current_tier !== previous.current_tier ||
+    next.mastered_concepts > previous.mastered_concepts ||
+    next.progress_percent > previous.progress_percent ||
+    (!previous.eligible_for_promotion && next.eligible_for_promotion)
+  );
 }
 
 export function getGrowthStageCopy(progress: GrowthProgressResponse): GrowthStageCopy {

@@ -2,6 +2,9 @@ const assert = require('node:assert/strict');
 
 const {
   buildPromotionTestPayload,
+  didGrowthProgressAdvance,
+  getLearningRecordHintMessage,
+  getLearningRecordSegments,
   getGrowthStageCopy,
   getPromotionResultHeadline,
   getUnlockLabel,
@@ -75,6 +78,39 @@ assert.deepEqual(
 assert.equal(getUnlockLabel('debate_arena'), '멘토 토론 아레나');
 assert.equal(getUnlockLabel('extra_mentors'), '추가 멘토 해금');
 assert.equal(getUnlockLabel('mystery_feature'), 'mystery feature');
+
+assert.deepEqual(getLearningRecordSegments({ reports: 3, quizzes: 5, arenas: 4 }), [
+  { key: 'reports', label: '리포트 3' },
+  { key: 'quizzes', label: '퀴즈 5' },
+  { key: 'arenas', label: '투기장 4' },
+]);
+
+assert.equal(
+  didGrowthProgressAdvance(eligibleProgress, {
+    ...eligibleProgress,
+    progress_percent: 80,
+    mastered_concepts: 4,
+  }),
+  false,
+  'unchanged growth snapshots should not stop the sync retry loop early',
+);
+
+assert.equal(
+  didGrowthProgressAdvance(eligibleProgress, {
+    ...eligibleProgress,
+    progress_percent: 100,
+    mastered_concepts: 5,
+    eligible_for_promotion: true,
+  }),
+  true,
+  'a higher mastered concept count should be treated as synced growth progress',
+);
+
+assert.equal(getLearningRecordHintMessage('reports'), '이해도 칩을 탭하면 다시 수정할 수 있어요');
+assert.equal(
+  getLearningRecordHintMessage('quizzes'),
+  '문항을 탭하면 풀이와 결과를 다시 볼 수 있어요',
+);
 
 assert.deepEqual(getGrowthStageCopy(eligibleProgress), {
   badge: '승급 가능',

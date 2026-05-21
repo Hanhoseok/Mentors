@@ -30,3 +30,18 @@ def test_request_id_auto_generated() -> None:
         r = client.get("/health")
     rid = r.headers.get("X-Request-ID", "")
     assert rid.startswith("req_")
+
+
+def test_dev_cors_allows_expo_web_origin() -> None:
+    with TestClient(app) as client:
+        r = client.options(
+            "/auth/dev-token",
+            headers={
+                "Origin": "http://localhost:8081",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+
+    assert r.status_code == 200
+    assert r.headers.get("access-control-allow-origin") == "http://localhost:8081"

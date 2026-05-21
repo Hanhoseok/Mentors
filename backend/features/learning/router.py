@@ -16,6 +16,7 @@ from core.contracts import ConceptId, ConceptMasteredEvent, MentorId, SessionId,
 from core.db import get_db
 from core.event_bus import event_bus
 from core.exceptions import BadRequestError
+from core.user_context import user_context
 
 from . import curriculum, service
 from .schemas import (
@@ -30,9 +31,19 @@ from .schemas import (
     SessionRes,
     SubmitQuizReq,
     SubmitQuizRes,
+    TierQuizCatalogRes,
 )
 
 router = APIRouter(prefix="/api/learning", tags=["learning"])
+
+
+def _to_quiz_response(item: curriculum.QuizItem) -> QuizRes:
+    return QuizRes(
+        concept_id=item.concept_id,
+        concept_name=item.concept_name,
+        question=item.question,
+        options=[QuizOption(index=idx, text=opt_text) for idx, opt_text in enumerate(item.options)],
+    )
 
 
 @router.get("/sessions", response_model=SessionListRes)
@@ -128,6 +139,19 @@ async def chat_stream(
     )
 
 
+@router.get("/me/quizzes", response_model=TierQuizCatalogRes)
+async def list_current_tier_quizzes(
+    user: User = Depends(get_current_user),
+) -> TierQuizCatalogRes:
+    """현재 티어에서 풀 수 있는 개념 퀴즈 목록."""
+    current_tier = await user_context.get_tier(UserId(user.id))
+    quizzes = curriculum.list_quizzes_for_tier(current_tier)
+    return TierQuizCatalogRes(
+        tier=current_tier.value,
+        quizzes=[_to_quiz_response(item) for item in quizzes],
+    )
+
+
 @router.get("/quizzes/{concept_id}", response_model=QuizRes)
 async def get_quiz(
     concept_id: int,
@@ -135,13 +159,7 @@ async def get_quiz(
 ) -> QuizRes:
     """투자 개념 확인 퀴즈 조회."""
     item = curriculum.get_quiz(concept_id)
-    options = [QuizOption(index=idx, text=opt_text) for idx, opt_text in enumerate(item.options)]
-    return QuizRes(
-        concept_id=item.concept_id,
-        concept_name=item.concept_name,
-        question=item.question,
-        options=options,
-    )
+    return _to_quiz_response(item)
 
 
 @router.post("/quizzes/submit", response_model=SubmitQuizRes)

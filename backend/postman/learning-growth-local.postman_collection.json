@@ -1,0 +1,572 @@
+{
+  "info": {
+    "_postman_id": "f7b64a41-3fdf-4b69-9d1a-4f45e72a9d90",
+    "name": "Mentors Learning-Growth Local",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Local dev flow for testing the combined learning -> growth integration. Start with a fresh dev user, solve quizzes, verify growth progress, and optionally take the promotion test."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Issue Fresh Dev Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('dev token issued', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('token', body.access_token);",
+              "pm.collectionVariables.set('userId', String(body.user.id));",
+              "pm.test('token saved for later requests', function () {",
+              "  pm.expect(pm.collectionVariables.get('token')).to.be.a('string').and.not.empty;",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"postman+{{$timestamp}}@local.test\",\n  \"nickname\": \"postman-local\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/dev-token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "dev-token"
+          ]
+        },
+        "description": "Creates a fresh local dev user in ENV=dev and stores the access token in collection variables."
+      }
+    },
+    {
+      "name": "2. Get Current User",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('current user fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('user matches saved dev token', function () {",
+              "  pm.expect(String(body.id)).to.eql(pm.collectionVariables.get('userId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "me"
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Growth Progress (Initial)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('initial growth progress fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('fresh user starts at T1 0%', function () {",
+              "  pm.expect(body.current_tier).to.eql('T1');",
+              "  pm.expect(body.progress_percent).to.eql(0);",
+              "  pm.expect(body.eligible_for_promotion).to.eql(false);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/growth/me/progress",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "growth",
+            "me",
+            "progress"
+          ]
+        },
+        "description": "Expected for a fresh dev user: T1, 0%, no promotion test."
+      }
+    },
+    {
+      "name": "4. Learning Quizzes (Current Tier)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('current tier quizzes fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('fresh user receives T1 quiz catalog', function () {",
+              "  pm.expect(body.tier).to.eql('T1');",
+              "  pm.expect(body.quizzes).to.have.length(5);",
+              "  pm.expect(body.quizzes.map((quiz) => quiz.concept_id)).to.eql([101, 102, 103, 104, 105]);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/me/quizzes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "me",
+            "quizzes"
+          ]
+        },
+        "description": "Expected for a fresh dev user: tier=T1 and 5 quizzes with concept ids 101~105."
+      }
+    },
+    {
+      "name": "5. Submit Quiz 101 (Correct)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('quiz 101 submitted', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('quiz 101 answer is correct', function () {",
+              "  pm.expect(body.correct).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"concept_id\": 101,\n  \"answer_index\": 0\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/quizzes/submit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "quizzes",
+            "submit"
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Growth Progress After Quiz 101",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('growth progress updated after quiz 101', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('progress reaches 20%', function () {",
+              "  pm.expect(body.current_tier).to.eql('T1');",
+              "  pm.expect(body.progress_percent).to.eql(20);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/growth/me/progress",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "growth",
+            "me",
+            "progress"
+          ]
+        },
+        "description": "Expected: 20%. Because growth update is event-driven, you may need to resend after a very short delay in some environments."
+      }
+    },
+    {
+      "name": "7. Submit Quiz 102 (Correct)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('quiz 102 submitted', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('quiz 102 answer is correct', function () {",
+              "  pm.expect(pm.response.json().correct).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"concept_id\": 102,\n  \"answer_index\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/quizzes/submit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "quizzes",
+            "submit"
+          ]
+        }
+      }
+    },
+    {
+      "name": "8. Submit Quiz 103 (Correct)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('quiz 103 submitted', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('quiz 103 answer is correct', function () {",
+              "  pm.expect(pm.response.json().correct).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"concept_id\": 103,\n  \"answer_index\": 2\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/quizzes/submit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "quizzes",
+            "submit"
+          ]
+        }
+      }
+    },
+    {
+      "name": "9. Submit Quiz 104 (Correct)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('quiz 104 submitted', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "pm.test('quiz 104 answer is correct', function () {",
+              "  pm.expect(pm.response.json().correct).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"concept_id\": 104,\n  \"answer_index\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/learning/quizzes/submit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "learning",
+            "quizzes",
+            "submit"
+          ]
+        }
+      }
+    },
+    {
+      "name": "10. Growth Progress After Four Correct Quizzes",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('growth progress fetched after four quizzes', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('progress reaches 80% and unlocks promotion', function () {",
+              "  pm.expect(body.current_tier).to.eql('T1');",
+              "  pm.expect(body.progress_percent).to.eql(80);",
+              "  pm.expect(body.eligible_for_promotion).to.eql(true);",
+              "  pm.expect(body.promotion_test).to.not.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/growth/me/progress",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "growth",
+            "me",
+            "progress"
+          ]
+        },
+        "description": "Expected: 80%, eligible_for_promotion=true, promotion_test not null."
+      }
+    },
+    {
+      "name": "11. Submit Promotion Test (Pass to T2)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('promotion test submitted', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('promotion result passes into T2', function () {",
+              "  pm.expect(body.passed).to.eql(true);",
+              "  pm.expect(body.current_tier).to.eql('T2');",
+              "  pm.expect(body.unlocked_features).to.include('debate_arena');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"answers\": [\n    { \"question_id\": \"t1-q1\", \"choice_id\": \"A\" },\n    { \"question_id\": \"t1-q2\", \"choice_id\": \"B\" },\n    { \"question_id\": \"t1-q3\", \"choice_id\": \"C\" },\n    { \"question_id\": \"t1-q4\", \"choice_id\": \"A\" },\n    { \"question_id\": \"t1-q5\", \"choice_id\": \"D\" }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/growth/promotion-test",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "growth",
+            "promotion-test"
+          ]
+        },
+        "description": "Optional final step to verify that learning-driven progress unlocks a promotion test and that a passing attempt moves the user to T2."
+      }
+    },
+    {
+      "name": "12. Growth Progress After Promotion",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('final growth progress fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('user remains in T2 with arena unlocked', function () {",
+              "  pm.expect(body.current_tier).to.eql('T2');",
+              "  pm.expect(body.unlocked_features).to.include('debate_arena');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/growth/me/progress",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "growth",
+            "me",
+            "progress"
+          ]
+        },
+        "description": "Expected after the optional promotion test: current_tier=T2 and unlocked_features includes debate_arena."
+      }
+    }
+  ]
+}

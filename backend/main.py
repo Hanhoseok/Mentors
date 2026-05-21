@@ -33,6 +33,8 @@ from features.onboarding import router as onboarding_router
 setup_logging()
 logger = logging.getLogger("main")
 
+_DEV_LOCAL_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -59,6 +61,7 @@ app.add_middleware(RequestIdMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
+    allow_origin_regex=_DEV_LOCAL_ORIGIN_REGEX if settings.env == "dev" else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

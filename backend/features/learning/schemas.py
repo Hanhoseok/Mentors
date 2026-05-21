@@ -65,6 +65,11 @@ class QuizRes(BaseModel):
     options: list[QuizOption]
 
 
+class TierQuizCatalogRes(BaseModel):
+    tier: str
+    quizzes: list[QuizRes]
+
+
 class SubmitQuizRes(BaseModel):
     correct: bool
     explanation: str
