@@ -63,11 +63,6 @@ class DevTokenResponse(TokenResponse):
     created: bool
 
 
-class DevLoginReq(BaseModel):
-    email: str
-    nickname: str | None = None
-
-
 @router.get("/google/login")
 async def google_login() -> RedirectResponse:
     state = generate_state()
@@ -133,38 +128,6 @@ async def issue_dev_token(
         expires_in=settings.jwt_expire_minutes * 60,
         user=UserResponse.from_user(user),
         created=created,
-    )
-
-
-@router.post("/dev/login", response_model=TokenResponse)
-async def dev_login(
-    req: DevLoginReq,
-    db: AsyncSession = Depends(get_db),
-) -> TokenResponse:
-    if settings.env != "dev":
-        raise ForbiddenError("dev login is disabled in this environment")
-
-    stmt = select(User).where(User.email == req.email)
-    user = (await db.execute(stmt)).scalar_one_or_none()
-    is_new = False
-    if user is None:
-        await _sync_pk_sequence(db, table_name="users", sequence_name="users_id_seq")
-        user = User(
-            email=req.email,
-            nickname=req.nickname or req.email.split("@")[0],
-            status="active",
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-        is_new = True
-        await event_bus.publish(UserSignedUpEvent(user_id=UserId(user.id)))
-
-    token = create_access_token(user.id)
-    logger.info("dev_login", extra={"user_id": user.id, "is_new": is_new})
-    return TokenResponse(
-        access_token=token,
-        expires_in=settings.jwt_expire_minutes * 60,
     )
 
 

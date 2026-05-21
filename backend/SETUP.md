@@ -85,15 +85,15 @@ Windows의 기본 asyncio 이벤트 루프는 ProactorEventLoop인데, `psycopg`
 
 **해결**: `uvicorn main:app` 대신 **`uv run python dev_server.py`** 사용. `dev_server.py`가 `asyncio.run(loop_factory=...)`로 SelectorEventLoop을 강제하고 그 안에서 uvicorn을 띄움. Linux/Mac에선 그냥 평소대로 `uvicorn main:app` 써도 됨 (dev_server.py도 OS 분기로 동일 동작).
 
-### 3. dev login (OAuth 우회)
+### 3. dev token (OAuth 우회)
 
-`ENV=dev`일 때 활성화되는 직접 로그인 엔드포인트:
+`ENV=dev`일 때 활성화되는 직접 토큰 발급 엔드포인트:
 ```
-POST /auth/dev/login
-{ "email": "me@test.com" }
-→ { "access_token": "...", "expires_in": 86400 }
+POST /auth/dev-token
+{ "email": "me@test.com", "nickname": "선택" }   # 둘 다 옵션 — 비우면 dev+<uuid>@local.test 자동 생성
+→ { "access_token": "...", "expires_in": 86400, "user": { ... }, "created": true }
 ```
-브라우저 OAuth 거치지 않고 smoke client/통합 테스트에서 사용. 운영(`ENV=prod`)에선 403.
+브라우저 OAuth 거치지 않고 smoke client/프론트 dev 화면/통합 테스트에서 사용. 운영(`ENV=prod`)에선 403.
 
 ### 4. smoke client (`_smoke/index.html`)
 
