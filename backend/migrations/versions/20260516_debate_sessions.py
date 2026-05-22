@@ -1,7 +1,7 @@
 """debate: init sessions and messages
 
 Revision ID: 20260516_debate_sessions
-Revises: 20260510_core_devices
+Revises: 20260520_learning_quiz_attempts
 Create Date: 2026-05-16
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20260516_debate_sessions"
-down_revision: str | Sequence[str] | None = "20260510_core_devices"
+down_revision: str | Sequence[str] | None = "20260520_learning_quiz_attempts"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
