@@ -8,7 +8,7 @@ from core.exceptions import ForbiddenError, UnauthorizedError
 from .jwt import decode_token
 from .models import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/google/login", auto_error=False)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/local/login", auto_error=False)
 
 
 async def get_current_user(
