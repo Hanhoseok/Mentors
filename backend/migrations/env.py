@@ -15,7 +15,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 # Base.metadata에 모델 등록 — 새 동의 모델은 여기에 추가
-from core.auth.models import AuthIdentity, User  # noqa: E402, F401
+from core.auth.models import AuthIdentity, LocalCredential, User  # noqa: E402, F401
 from core.config import settings
 from core.db import Base
 from core.push.models import DeviceToken  # noqa: E402, F401
