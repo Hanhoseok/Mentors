@@ -27,20 +27,7 @@ DEFAULT_OPENAI_CHAT_MODEL = "gpt-4o-mini"
 DEFAULT_OPENAI_EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
-DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-2.5-flash-lite"
 DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-001"
-
-
-def _google_chat_model_candidates(selected_model: str) -> list[str]:
-    if selected_model == DEFAULT_GEMINI_FALLBACK_MODEL:
-        return [selected_model]
-    return [selected_model, DEFAULT_GEMINI_FALLBACK_MODEL]
-
-
-def _is_google_high_demand_error(error: Exception) -> bool:
-    status_code = getattr(error, "status_code", None)
-    text = str(error).lower()
-    return status_code == 503 or "503" in text or "high demand" in text or "unavailable" in text
 
 
 class LLMClient:
@@ -75,14 +62,22 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 1000,
         response_format: str | None = None,
+        provider: str | None = None,
     ) -> ChatResponse:
-        if settings.llm_provider == "openai" and self._openai is not None:
+        selected_provider = provider or settings.llm_provider
+        if selected_provider == "openai" and self._openai is not None:
             return await self._openai_chat(messages, model, temperature, max_tokens)
-        if settings.llm_provider == "anthropic" and self._anthropic is not None:
+        if selected_provider == "anthropic" and self._anthropic is not None:
             return await self._anthropic_chat(messages, model, temperature, max_tokens)
-        if settings.llm_provider == "google" and self._google is not None:
-            return await self._google_chat(messages, model, temperature, max_tokens, response_format)
-        raise ExternalServiceError(f"{settings.llm_provider} chat not configured (missing API key)")
+        if selected_provider == "google" and self._google is not None:
+            return await self._google_chat(
+                messages,
+                model,
+                temperature,
+                max_tokens,
+                response_format,
+            )
+        raise ExternalServiceError(f"{selected_provider} chat not configured (missing API key)")
 
     async def chat_stream(
         self,
@@ -90,23 +85,25 @@ class LLMClient:
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 1000,
+        provider: str | None = None,
     ) -> AsyncIterator[StreamChunk]:
-        if settings.llm_provider == "openai" and self._openai is not None:
+        selected_provider = provider or settings.llm_provider
+        if selected_provider == "openai" and self._openai is not None:
             async for chunk in self._openai_chat_stream(messages, model, temperature, max_tokens):
                 yield chunk
             return
-        if settings.llm_provider == "anthropic" and self._anthropic is not None:
+        if selected_provider == "anthropic" and self._anthropic is not None:
             async for chunk in self._anthropic_chat_stream(
                 messages, model, temperature, max_tokens
             ):
                 yield chunk
             return
-        if settings.llm_provider == "google" and self._google is not None:
+        if selected_provider == "google" and self._google is not None:
             async for chunk in self._google_chat_stream(messages, model, temperature, max_tokens):
                 yield chunk
             return
         raise ExternalServiceError(
-            f"{settings.llm_provider} chat_stream not configured (missing API key)"
+            f"{selected_provider} chat_stream not configured (missing API key)"
         )
 
     async def embed(self, text: str) -> list[float]:
@@ -318,32 +315,19 @@ class LLMClient:
             config.system_instruction = system
 
         selected_model = model or DEFAULT_GEMINI_MODEL
-        last_error: Exception | None = None
-        for candidate_model in _google_chat_model_candidates(selected_model):
-            try:
-                resp = await self._google.aio.models.generate_content(
-                    model=candidate_model,
-                    contents=contents,
-                    config=config,
-                )
-                break
-            except Exception as e:
-                last_error = e
-                if candidate_model == selected_model and _is_google_high_demand_error(e):
-                    logger.info(
-                        "google_gemini.high_demand_retry",
-                        extra={"model": candidate_model, "fallback_model": DEFAULT_GEMINI_FALLBACK_MODEL},
-                    )
-                    continue
-                raise ExternalServiceError(f"Google Gemini chat failed: {e}") from e
-        else:
-            assert last_error is not None
-            raise ExternalServiceError(f"Google Gemini chat failed: {last_error}") from last_error
+        try:
+            resp = await self._google.aio.models.generate_content(
+                model=selected_model,
+                contents=contents,
+                config=config,
+            )
+        except Exception as e:
+            raise ExternalServiceError(f"Google Gemini chat failed: {e}") from e
 
         usage = getattr(resp, "usage_metadata", None)
         return ChatResponse(
             text=resp.text or "",
-            model=getattr(resp, "model_version", None) or candidate_model,
+            model=getattr(resp, "model_version", None) or selected_model,
             prompt_tokens=usage.prompt_token_count if usage else 0,
             completion_tokens=usage.candidates_token_count if usage else 0,
         )
@@ -375,22 +359,7 @@ class LLMClient:
                 config=config,
             )
         except Exception as e:
-            if not _is_google_high_demand_error(e):
-                raise ExternalServiceError(f"Google Gemini stream init failed: {e}") from e
-            logger.info(
-                "google_gemini.stream_high_demand_retry",
-                extra={"model": selected_model, "fallback_model": DEFAULT_GEMINI_FALLBACK_MODEL},
-            )
-            try:
-                stream = await self._google.aio.models.generate_content_stream(
-                    model=DEFAULT_GEMINI_FALLBACK_MODEL,
-                    contents=contents,
-                    config=config,
-                )
-            except Exception as fallback_error:
-                raise ExternalServiceError(
-                    f"Google Gemini stream init failed: {fallback_error}"
-                ) from fallback_error
+            raise ExternalServiceError(f"Google Gemini stream init failed: {e}") from e
 
         usage_dict: dict[str, Any] | None = None
         async for chunk in stream:
@@ -419,4 +388,4 @@ class LLMClient:
         return list(resp.embeddings[0].values)
 
 
-llm = LLMClient()
+llm_client = LLMClient()

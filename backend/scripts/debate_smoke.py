@@ -20,6 +20,7 @@ from core.exceptions import ExternalServiceError
 from features.debate.models import DebateMessage, DebateSession
 
 debate_router = importlib.import_module("features.debate.router")
+debate_service = importlib.import_module("features.debate.service")
 
 DEFAULT_TOPIC = "금리 상승기 성장주 전략"
 
@@ -79,7 +80,7 @@ async def main() -> None:
     debate_router._retrieve_context = fake_context
     debate_router.event_bus.publish = fake_publish
 
-    if not debate_router.llm.configured:
+    if not debate_service.is_llm_ready():
         print("[notice] LLM API 키가 없어 fallback 토론 생성을 확인합니다.")
 
     print("== personas ==")

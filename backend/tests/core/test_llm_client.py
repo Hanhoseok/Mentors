@@ -1,6 +1,6 @@
-from core.llm.client import (
+from core.llm.client import DEFAULT_GEMINI_MODEL
+from core.llm.gateway import (
     DEFAULT_GEMINI_FALLBACK_MODEL,
-    DEFAULT_GEMINI_MODEL,
     _google_chat_model_candidates,
     _is_google_high_demand_error,
 )

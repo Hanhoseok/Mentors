@@ -9,6 +9,8 @@ from core.vector_store import Document
 from features.debate.models import DebateMessage, DebateSession
 
 debate_router = importlib.import_module("features.debate.router")
+debate_service = importlib.import_module("features.debate.service")
+debate_mentor_ai = importlib.import_module("features.debate.mentor_ai")
 debate_personas = importlib.import_module("features.debate.personas")
 
 
@@ -286,7 +288,7 @@ async def test_start_debate_uses_local_topic_extraction_before_llm(
         called = True
         raise AssertionError("topic extraction should not call llm for simple inputs")
 
-    monkeypatch.setattr(debate_router.llm, "chat", fake_chat)
+    monkeypatch.setattr(debate_mentor_ai.llm, "chat", fake_chat)
 
     response = await debate_router.start_debate(
         debate_router.DebateStartRequest(topic="삼성전자 지금 사도 될까 토론해줘"),
@@ -369,9 +371,9 @@ async def test_fallback_turn_uses_news_evidence_without_llm(
         ],
         query="AI 반도체 장기 투자",
     )
-    monkeypatch.setattr(debate_router, "_is_llm_ready", lambda: False)
+    monkeypatch.setattr(debate_mentor_ai, "is_llm_ready", lambda: False)
 
-    answer = await debate_router._generate_turn(
+    answer = await debate_service.generate_turn_answer(
         "AI 반도체 장기 투자",
         debate_personas.get_persona("value"),
         "opinion",
@@ -404,7 +406,7 @@ def test_news_evidence_uses_description_instead_of_repeated_title() -> None:
         query="삼성전자 투자",
     )
 
-    evidence = debate_router._extract_news_evidence(context)
+    evidence = debate_service.extract_news_evidence(context)
 
     assert len(evidence) == 1
     assert evidence[0].title.startswith("DRAM 폭등")
@@ -428,7 +430,7 @@ def test_news_evidence_summarizes_question_style_title_when_description_is_missi
         query="삼성전자 투자",
     )
 
-    evidence = debate_router._extract_news_evidence(context)
+    evidence = debate_service.extract_news_evidence(context)
 
     assert evidence[0].sentence == "삼성전자와 반도체주의 매수 타이밍이 투자자들의 핵심 쟁점으로 다뤄지고 있다"
     assert "사야 하나라는 점" not in evidence[0].as_text()
@@ -450,7 +452,7 @@ def test_news_evidence_summarizes_headline_style_sentence_without_description() 
         query="AI 주식 거품인가",
     )
 
-    evidence = debate_router._extract_news_evidence(context)
+    evidence = debate_service.extract_news_evidence(context)
 
     assert evidence[0].sentence == "AI 관련 주식의 가격 상승 기대와 조정 우려가 함께 부각되고 있다"
     assert "폭락 대비법 네이트라는 점" not in evidence[0].as_text()
@@ -472,7 +474,7 @@ def test_news_evidence_summarizes_macro_title_without_source_tail() -> None:
         query="금리 인하가 주식시장과 기업가치에 미치는 영향",
     )
 
-    evidence = debate_router._extract_news_evidence(context)
+    evidence = debate_service.extract_news_evidence(context)
 
     assert evidence[0].sentence == "금리 인하 기대가 할인율, 성장주 밸류에이션, 환율과 수급 판단에 영향을 주고 있다"
     assert "뉴닉라는 점" not in evidence[0].as_text()
@@ -510,7 +512,7 @@ def test_news_evidence_ignores_domain_tail_from_repeated_title() -> None:
         query="삼성전자 투자",
     )
 
-    evidence = debate_router._extract_news_evidence(context)
+    evidence = debate_service.extract_news_evidence(context)
 
     assert len(evidence) == 1
     assert evidence[0].sentence == "삼성전자와 반도체주의 매수 타이밍이 투자자들의 핵심 쟁점으로 다뤄지고 있다"
@@ -533,7 +535,7 @@ def test_news_evidence_marks_aggressive_forecasts_as_speculative() -> None:
         query="삼성전자 투자",
     )
 
-    evidence = debate_router._extract_news_evidence(context)
+    evidence = debate_service.extract_news_evidence(context)
     prompt_line = evidence[0].as_prompt_line()
 
     assert evidence[0].is_speculative is True
@@ -562,10 +564,10 @@ async def test_generate_turn_uses_llm_when_ready(
         seen_prompt = messages[-1].content
         return SimpleNamespace(text=llm_answer)
 
-    monkeypatch.setattr(debate_router, "_is_llm_ready", lambda: True)
-    monkeypatch.setattr(debate_router.llm, "chat", fake_chat)
+    monkeypatch.setattr(debate_mentor_ai, "is_llm_ready", lambda: True)
+    monkeypatch.setattr(debate_mentor_ai.llm, "chat", fake_chat)
 
-    answer = await debate_router._generate_turn(
+    answer = await debate_service.generate_turn_answer(
         "AI 반도체 장기 투자",
         debate_personas.get_persona("value"),
         "opinion",
@@ -689,27 +691,27 @@ def test_ev_theme_news_queries_do_not_collapse_into_battery_only() -> None:
 
 
 def test_low_signal_news_filters_community_and_video_sources() -> None:
-    assert debate_router._is_low_signal_news(
+    assert debate_service.is_low_signal_news(
         "AI 주식 개인 투자자 현실 경험담",
         "블로그",
         "https://example.com/post",
     )
-    assert debate_router._is_low_signal_news(
+    assert debate_service.is_low_signal_news(
         "삼성전자 투자 전망",
         "YouTube",
         "https://youtube.com/watch?v=abc",
     )
-    assert debate_router._is_low_signal_news(
+    assert debate_service.is_low_signal_news(
         "카카오 나가고 하나은행 들어왔다…네이버·두나무 빅딜 '탄력' - jabon.co.kr",
         "jabon.co.kr",
         "https://news.google.com/rss/articles/example",
     )
-    assert debate_router._is_low_signal_news(
+    assert debate_service.is_low_signal_news(
         "카카오 투자분석 - 주달",
         "주달",
         "https://news.google.com/rss/articles/example",
     )
-    assert debate_router._is_low_signal_news(
+    assert debate_service.is_low_signal_news(
         "카카오뱅크의 플랫폼 독주와 AX 혁신 -> 증권·투신사 유동성 독점하는 중개 허브 - 데일리머니",
         "데일리머니",
         "https://news.google.com/rss/articles/example",
@@ -717,14 +719,14 @@ def test_low_signal_news_filters_community_and_video_sources() -> None:
 
 
 def test_news_reference_uses_shortened_title_without_source_tail() -> None:
-    evidence = debate_router.NewsEvidence(
+    evidence = debate_service.NewsEvidence(
         title="미국 연방준비제도 금리 인하 이유와 추가 인하 전망, 한국 영향 총정리 🇺🇸💰🇰🇷 | 네이버 뉴스",
         source="네이버 뉴스",
         url="https://example.com/news",
         sentence="금리 인하 기대가 성장주 밸류에이션과 환율 판단에 영향을 주고 있다",
     )
 
-    reference = debate_router._natural_news_reference(evidence)
+    reference = debate_service.natural_news_reference(evidence)
 
     assert "네이버 뉴스" not in reference.split("\"", maxsplit=2)[1]
     assert "🇺🇸" not in reference
@@ -734,17 +736,17 @@ def test_news_reference_uses_shortened_title_without_source_tail() -> None:
 
 
 def test_news_reference_summarizes_kakao_title_naturally() -> None:
-    sentence = debate_router._summarize_news_title(
+    sentence = debate_service.summarize_news_title(
         "카카오 나가고 하나은행 들어왔다…네이버·두나무 빅딜 '탄력' - jabon.co.kr"
     )
-    evidence = debate_router.NewsEvidence(
+    evidence = debate_service.NewsEvidence(
         title="카카오 나가고 하나은행 들어왔다…네이버·두나무 빅딜 '탄력' - jabon.co.kr",
         source="jabon.co.kr",
         url="https://example.com/news",
         sentence=sentence,
     )
 
-    reference = debate_router._natural_news_reference(evidence)
+    reference = debate_service.natural_news_reference(evidence)
 
     assert sentence == "카카오 관련 지분과 사업 재편 이슈가 투자 판단의 변수로 부각되고 있다"
     assert "jabon.co.kr" not in reference.split("\"", maxsplit=2)[1]
@@ -797,7 +799,7 @@ def test_parse_debate_script_reads_three_turns() -> None:
     ```
     """
 
-    parsed = debate_router._parse_debate_script(text)
+    parsed = debate_service.parse_debate_script(text)
 
     assert set(parsed) == {1, 2, 3}
     assert "현금흐름" in parsed[1].content
@@ -824,7 +826,7 @@ def test_parse_debate_script_reads_json_with_surrounding_text() -> None:
     참고하세요.
     """
 
-    parsed = debate_router._parse_debate_script(text)
+    parsed = debate_service.parse_debate_script(text)
 
     assert set(parsed) == {1, 2, 3}
     assert "가격 부담" in parsed[1].content
@@ -843,7 +845,21 @@ def test_parse_debate_script_tolerates_trailing_commas_and_extra_text() -> None:
     ```
     """
 
-    parsed = debate_router._parse_debate_script(text)
+    parsed = debate_service.parse_debate_script(text)
+
+    assert set(parsed) == {1, 2, 3}
+
+
+def test_parse_debate_script_accepts_turn_array_root() -> None:
+    text = """
+    [
+      {"turn_index": 1, "content": "첫 의견은 신중해야 합니다. 그래도 확인할 장점은 있습니다. 가격 부담도 함께 봐야 합니다."},
+      {"turn_index": 2, "content": "그 신중론은 맞습니다. 다만 성장 가능성도 함께 봐야 합니다. 변화 속도를 놓치면 안 됩니다."},
+      {"turn_index": 3, "content": "성장 가능성은 인정합니다. 그래도 현금흐름으로 증명되는지 확인해야 합니다. 기대가 실제 이익으로 바뀌는 과정이 필요합니다."}
+    ]
+    """
+
+    parsed = debate_service.parse_debate_script(text)
 
     assert set(parsed) == {1, 2, 3}
 
@@ -864,16 +880,57 @@ async def test_generate_debate_script_requires_all_turns(monkeypatch: pytest.Mon
         (3, debate_personas.get_persona("value"), "counter", "재반박"),
     ]
 
-    monkeypatch.setattr(debate_router, "_is_llm_ready", lambda: True)
-    monkeypatch.setattr(debate_router.llm, "chat", fake_chat)
+    monkeypatch.setattr(debate_mentor_ai, "is_llm_ready", lambda: True)
+    monkeypatch.setattr(debate_mentor_ai.llm, "chat", fake_chat)
 
-    parsed = await debate_router._generate_debate_script(
+    parsed = await debate_service.generate_script(
         "AI 주식 거품인가",
         turns,
         RAGContext(documents=[], query="AI 주식 거품인가"),
     )
 
     assert parsed is None
+
+
+async def test_generate_debate_script_repairs_incomplete_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    async def fake_chat(*args: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return SimpleNamespace(
+                text='{"turns":[{"turn_index":1,"content":"첫 의견은 신중해야 합니다. 그래도 확인할 장점은 있습니다. 가격 부담도 함께 봐야 합니다."}]}'
+            )
+        return SimpleNamespace(
+            text=(
+                '{"turns":['
+                '{"turn_index":1,"content":"첫 의견은 신중해야 합니다. 그래도 확인할 장점은 있습니다. 가격 부담도 함께 봐야 합니다."},'
+                '{"turn_index":2,"content":"그 신중론은 맞습니다. 다만 성장 가능성도 함께 봐야 합니다. 변화 속도를 놓치면 안 됩니다."},'
+                '{"turn_index":3,"content":"성장 가능성은 인정합니다. 그래도 현금흐름으로 증명되는지 확인해야 합니다. 기대가 실제 이익으로 바뀌는 과정이 필요합니다."}'
+                "]}"
+            )
+        )
+
+    turns = [
+        (1, debate_personas.get_persona("value"), "opinion", "첫 의견"),
+        (2, debate_personas.get_persona("growth"), "rebuttal", "반박"),
+        (3, debate_personas.get_persona("value"), "counter", "재반박"),
+    ]
+
+    monkeypatch.setattr(debate_mentor_ai.llm, "chat", fake_chat)
+
+    parsed = await debate_service.generate_script(
+        "AI 주식 거품인가",
+        turns,
+        RAGContext(documents=[], query="AI 주식 거품인가"),
+    )
+
+    assert parsed is not None
+    assert set(parsed) == {1, 2, 3}
+    assert calls == 2
 
 
 async def test_script_parse_failure_does_not_call_turn_llm(
@@ -889,9 +946,8 @@ async def test_script_parse_failure_does_not_call_turn_llm(
         raise AssertionError("turn-level LLM should not run after script parse failure")
 
     monkeypatch.setattr(debate_router, "_retrieve_context", fake_context)
-    monkeypatch.setattr(debate_router, "_is_llm_ready", lambda: True)
-    monkeypatch.setattr(debate_router, "_generate_debate_script", broken_script)
-    monkeypatch.setattr(debate_router, "_generate_turn", fail_generate)
+    monkeypatch.setattr(debate_service, "generate_script", broken_script)
+    monkeypatch.setattr(debate_service, "generate_turn_answer", fail_generate)
 
     db = FakeStreamDB()
     response = await debate_router.stream_debate(123, SimpleNamespace(id=1), db)
@@ -928,9 +984,8 @@ async def test_stream_debate_generates_three_turns_and_publishes_event(
         return {}
 
     monkeypatch.setattr(debate_router, "_retrieve_context", fake_context)
-    monkeypatch.setattr(debate_router, "_is_llm_ready", lambda: True)
-    monkeypatch.setattr(debate_router, "_generate_debate_script", no_script)
-    monkeypatch.setattr(debate_router, "_generate_turn", fake_generate)
+    monkeypatch.setattr(debate_service, "generate_script", no_script)
+    monkeypatch.setattr(debate_service, "generate_turn_answer", fake_generate)
     monkeypatch.setattr(debate_router.event_bus, "publish", fake_publish)
 
     db = FakeStreamDB()
