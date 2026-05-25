@@ -1,0 +1,560 @@
+{
+  "info": {
+    "_postman_id": "f6fc4f73-4fd6-4e2d-96be-7f2be064fe10",
+    "name": "Mentors Settings-Onboarding Local",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Local dev flow for testing auth/account and settings-related onboarding endpoints."
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "recommendedMentorId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Issue Fresh Dev Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('dev token issued', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('token', body.access_token);",
+              "pm.collectionVariables.set('userId', String(body.user.id));",
+              "pm.collectionVariables.unset('recommendedMentorId');"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"postman-settings+{{$timestamp}}@local.test\",\n  \"nickname\": \"postman-settings\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/auth/dev-token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "dev-token"
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Get Current User",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('current user fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('user matches saved token', function () {",
+              "  pm.expect(String(body.id)).to.eql(pm.collectionVariables.get('userId'));",
+              "});",
+              "pm.test('user is active', function () {",
+              "  pm.expect(body.status).to.eql('active');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "me"
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Onboarding Status (Fresh User)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('fresh status fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('fresh user is not onboarded', function () {",
+              "  pm.expect(body.onboarded).to.eql(false);",
+              "  pm.expect(body.profile).to.eql(null);",
+              "  pm.expect(body.selected_mentor).to.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Save Initial Onboarding Profile",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('initial onboarding profile saved', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('profile values are persisted in response', function () {",
+              "  pm.expect(body.profile.experience_level).to.eql('exploring');",
+              "  pm.expect(body.profile.interests).to.include('it');",
+              "  pm.expect(body.profile.preferred_style).to.eql('structured');",
+              "});",
+              "pm.test('recommended mentors are returned', function () {",
+              "  pm.expect(body.recommended_mentors.length).to.be.above(0);",
+              "});",
+              "pm.collectionVariables.set('recommendedMentorId', String(body.recommended_mentors[0].id));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"experience_level\": \"exploring\",\n  \"interests\": [\"us-stock\", \"it\", \"ai\"],\n  \"risk_profile\": \"balanced\",\n  \"learning_goal\": \"understand-news\",\n  \"preferred_style\": \"structured\",\n  \"answers\": [\n    {\n      \"question_code\": \"interest_primary\",\n      \"question_text\": \"Primary interest\",\n      \"answer_value\": \"us-stock\"\n    },\n    {\n      \"question_code\": \"interest_secondary\",\n      \"question_text\": \"Secondary interest\",\n      \"answer_value\": \"it\"\n    },\n    {\n      \"question_code\": \"style\",\n      \"question_text\": \"Preferred explanation style\",\n      \"answer_value\": \"structured\"\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/profile",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "profile"
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. Select Recommended Mentor",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('mentor selected', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('user becomes onboarded', function () {",
+              "  pm.expect(body.onboarded).to.eql(true);",
+              "  pm.expect(body.tier).to.eql('T1');",
+              "});",
+              "pm.test('selected mentor matches stored recommendation', function () {",
+              "  pm.expect(String(body.selected_mentor.id)).to.eql(pm.collectionVariables.get('recommendedMentorId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"mentor_id\": {{recommendedMentorId}}\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/select-mentor",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "select-mentor"
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. Onboarding Status (Completed)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('completed status fetched', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('status shows completed onboarding', function () {",
+              "  pm.expect(body.onboarded).to.eql(true);",
+              "  pm.expect(body.profile.preferred_style).to.eql('structured');",
+              "  pm.expect(body.profile.interests).to.include('ai');",
+              "  pm.expect(String(body.selected_mentor.id)).to.eql(pm.collectionVariables.get('recommendedMentorId'));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Update Learning Preferences",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('updated onboarding profile saved', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('updated values are returned', function () {",
+              "  pm.expect(body.profile.interests).to.include('bio');",
+              "  pm.expect(body.profile.interests).to.include('semiconductor');",
+              "  pm.expect(body.profile.preferred_style).to.eql('practical');",
+              "});",
+              "pm.test('recommendations are still returned', function () {",
+              "  pm.expect(body.recommended_mentors.length).to.be.above(0);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"experience_level\": \"exploring\",\n  \"interests\": [\"domestic-stock\", \"bio\", \"semiconductor\"],\n  \"risk_profile\": \"balanced\",\n  \"learning_goal\": \"find-ideas\",\n  \"preferred_style\": \"practical\",\n  \"answers\": [\n    {\n      \"question_code\": \"interest_primary\",\n      \"question_text\": \"Primary interest\",\n      \"answer_value\": \"domestic-stock\"\n    },\n    {\n      \"question_code\": \"interest_secondary\",\n      \"question_text\": \"Secondary interest\",\n      \"answer_value\": \"bio\"\n    },\n    {\n      \"question_code\": \"style\",\n      \"question_text\": \"Preferred explanation style\",\n      \"answer_value\": \"practical\"\n    }\n  ]\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/profile",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "profile"
+          ]
+        }
+      }
+    },
+    {
+      "name": "8. Onboarding Status (After Preference Update)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status fetched after preference update', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('status reflects updated profile and keeps mentor', function () {",
+              "  pm.expect(body.onboarded).to.eql(true);",
+              "  pm.expect(body.profile.preferred_style).to.eql('practical');",
+              "  pm.expect(body.profile.interests).to.include('bio');",
+              "  pm.expect(body.selected_mentor).to.not.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "9. Reset Onboarding",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('onboarding reset completed', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('status is cleared after reset', function () {",
+              "  pm.expect(body.onboarded).to.eql(false);",
+              "  pm.expect(body.tier).to.eql('T1');",
+              "  pm.expect(body.profile).to.eql(null);",
+              "  pm.expect(body.selected_mentor).to.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/reset",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "reset"
+          ]
+        }
+      }
+    },
+    {
+      "name": "10. Onboarding Status (After Reset)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('status fetched after reset', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('user is back to fresh onboarding state', function () {",
+              "  pm.expect(body.onboarded).to.eql(false);",
+              "  pm.expect(body.tier).to.eql('T1');",
+              "  pm.expect(body.profile).to.eql(null);",
+              "  pm.expect(body.selected_mentor).to.eql(null);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/onboarding/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "onboarding",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "11. Delete Current User",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('current user deleted', function () {",
+              "  pm.response.to.have.status(204);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "me"
+          ]
+        }
+      }
+    },
+    {
+      "name": "12. Get Current User (Deleted Account)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('deleted account is blocked', function () {",
+              "  pm.response.to.have.status(403);",
+              "});",
+              "const body = pm.response.json();",
+              "pm.test('deleted account error message is returned', function () {",
+              "  pm.expect(body.message).to.eql('Account deleted');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/me",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "me"
+          ]
+        }
+      }
+    }
+  ]
+}
