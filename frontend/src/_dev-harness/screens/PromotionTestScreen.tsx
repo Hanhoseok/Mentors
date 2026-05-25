@@ -10,13 +10,13 @@ import {
   getGrowthProgress,
   submitPromotionTest,
 } from '@/features/growth/api';
+import type { PromotionTestQuestion, PromotionTestResponse } from '@/features/growth/types';
 import {
   buildPromotionTestPayload,
   getPromotionResultHeadline,
   getUnlockLabel,
   isPromotionTestComplete,
-} from '@/features/growth/logic';
-import type { PromotionTestQuestion, PromotionTestResponse } from '@/features/growth/types';
+} from '../growth/logic';
 
 type PromotionTestScreenProps = NativeStackScreenProps<RootStackParamList, 'PromotionTest'>;
 

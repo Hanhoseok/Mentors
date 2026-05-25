@@ -21,6 +21,10 @@ import {
   getCurrentUser,
 } from '@/features/auth/api';
 import { resetOnboardingProfile, getOnboardingStatus, saveOnboardingProfile } from '@/features/onboarding/api';
+import type { InterestTag, PreferredStyle } from '@/features/onboarding/types';
+import { useUserStore } from '@/store/userStore';
+import { SelectionChip } from '../components/SelectionChip';
+import type { RootStackParamList } from '../navigation/types';
 import {
   getExperienceLevelLabel,
   getInterestLabel,
@@ -28,11 +32,7 @@ import {
   getPreferredStyleLabel,
   getRiskProfileLabel,
   preferredStyleOptions,
-} from '@/features/onboarding/data';
-import type { InterestTag, PreferredStyle } from '@/features/onboarding/types';
-import { useUserStore } from '@/store/userStore';
-import { SelectionChip } from '../components/SelectionChip';
-import type { RootStackParamList } from '../navigation/types';
+} from '../onboarding/data';
 import {
   buildLearningPreferenceSeed,
   hasLearningPreferenceChanges,

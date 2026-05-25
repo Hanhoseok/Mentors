@@ -9,7 +9,7 @@ const {
   getPromotionResultHeadline,
   getUnlockLabel,
   isPromotionTestComplete,
-} = require('../.tmp-growth/logic.js');
+} = require('../../.tmp-harness-growth/_dev-harness/growth/logic.js');
 
 const eligibleProgress = {
   current_tier: 'T1',

@@ -6,7 +6,7 @@ import type {
   PreferredStyle,
   RiskProfile,
   SelectOption,
-} from './types';
+} from '../../features/onboarding/types';
 
 export const experienceLevelOptions: SelectOption<ExperienceLevel>[] = [
   {

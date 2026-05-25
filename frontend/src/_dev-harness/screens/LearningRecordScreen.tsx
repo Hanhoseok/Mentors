@@ -5,18 +5,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { getGrowthApiErrorMessage, getGrowthProgress } from '@/features/growth/api';
-import {
-  arenaRecords,
-  reportRecords,
-  type ArenaRecord,
-  type ReportUnderstanding,
-} from '@/features/growth/data';
-import {
-  didGrowthProgressAdvance,
-  getLearningRecordHintMessage,
-  getLearningRecordSegments,
-  type LearningRecordSegmentKey,
-} from '@/features/growth/logic';
 import type { GrowthProgressResponse } from '@/features/growth/types';
 import {
   getCurrentTierQuizzes,
@@ -30,6 +18,18 @@ import type {
 } from '@/features/learning/types';
 import { useUserStore } from '@/store/userStore';
 import { GrowthProgressCard } from '../components/GrowthProgressCard';
+import {
+  arenaRecords,
+  reportRecords,
+  type ArenaRecord,
+  type ReportUnderstanding,
+} from '../growth/data';
+import {
+  didGrowthProgressAdvance,
+  getLearningRecordHintMessage,
+  getLearningRecordSegments,
+  type LearningRecordSegmentKey,
+} from '../growth/logic';
 import type { RootStackParamList } from '../navigation/types';
 
 type QuizResultTone = 'correct' | 'incorrect' | 'review';

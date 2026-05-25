@@ -8,13 +8,13 @@ const {
   getOnboardingStepLabel,
   getRecommendedMentors,
   isSurveyComplete,
-} = require('../.tmp-onboarding/logic.js');
+} = require('../../.tmp-harness-onboarding/_dev-harness/onboarding/logic.js');
 const {
   onboardingInterestOptions,
   interestOptions,
   profileInterestOptions,
   getInterestLabel,
-} = require('../.tmp-onboarding/data.js');
+} = require('../../.tmp-harness-onboarding/_dev-harness/onboarding/data.js');
 
 const survey = {
   experienceLevel: 'beginner',

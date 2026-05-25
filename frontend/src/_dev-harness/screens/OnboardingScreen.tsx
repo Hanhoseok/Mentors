@@ -4,13 +4,21 @@ import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { saveMentorSelection, saveOnboardingProfile } from '@/features/onboarding/api';
+import type {
+  MentorRecommendation,
+  OnboardingSurvey,
+  OnboardingSyncState,
+  SelectOption,
+} from '@/features/onboarding/types';
+import { useUserStore } from '@/store/userStore';
+import { MentorRecommendationCard } from '../components/MentorRecommendationCard';
 import {
   experienceLevelOptions,
   onboardingInterestOptions,
   learningGoalOptions,
   preferredStyleOptions,
   riskProfileOptions,
-} from '@/features/onboarding/data';
+} from '../onboarding/data';
 import {
   buildCompletedProfile,
   buildCompletedProfileFromStatus,
@@ -24,15 +32,7 @@ import {
   isSurveyComplete,
   ONBOARDING_STEP_COUNT,
   toggleInterest,
-} from '@/features/onboarding/logic';
-import type {
-  MentorRecommendation,
-  OnboardingSurvey,
-  OnboardingSyncState,
-  SelectOption,
-} from '@/features/onboarding/types';
-import { useUserStore } from '@/store/userStore';
-import { MentorRecommendationCard } from '../components/MentorRecommendationCard';
+} from '../onboarding/logic';
 
 type AgeRange = 'teens' | 'early20s' | 'late20s' | 'thirties' | 'fortiesPlus';
 type SurveyStepKey = 'age' | 'experience' | 'risk' | 'goal' | 'style' | 'interests';

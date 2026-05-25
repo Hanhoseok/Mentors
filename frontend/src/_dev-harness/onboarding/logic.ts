@@ -16,7 +16,7 @@ import type {
   OnboardingStatusResponse,
   OnboardingSurvey,
   OnboardingSyncState,
-} from './types';
+} from '../../features/onboarding/types';
 
 type CompletedSurvey = Omit<
   CompletedOnboardingProfile,

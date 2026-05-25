@@ -4,7 +4,7 @@ import type {
   PromotionTestQuestion,
   PromotionTestRequest,
   PromotionTestResponse,
-} from './types';
+} from '../../features/growth/types';
 
 const unlockLabels: Record<string, string> = {
   debate_arena: '멘토 토론 아레나',

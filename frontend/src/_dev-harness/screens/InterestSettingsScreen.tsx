@@ -14,10 +14,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { getAuthApiErrorMessage } from '@/features/auth/api';
 import { getOnboardingStatus, saveOnboardingProfile } from '@/features/onboarding/api';
-import { getInterestLabel, profileInterestOptions } from '@/features/onboarding/data';
-import { toggleInterest } from '@/features/onboarding/logic';
 import type { InterestTag } from '@/features/onboarding/types';
 import { useUserStore } from '@/store/userStore';
+import { getInterestLabel, profileInterestOptions } from '../onboarding/data';
+import { toggleInterest } from '../onboarding/logic';
 import type { RootStackParamList } from '../navigation/types';
 import {
   buildLearningPreferenceSeed,

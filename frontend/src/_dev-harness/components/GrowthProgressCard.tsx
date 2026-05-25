@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '@/constants/colors';
-import { getGrowthStageCopy, getUnlockLabel } from '@/features/growth/logic';
 import type { GrowthProgressResponse } from '@/features/growth/types';
+import { getGrowthStageCopy, getUnlockLabel } from '../growth/logic';
 
 interface GrowthProgressCardProps {
   progress: GrowthProgressResponse | null;
