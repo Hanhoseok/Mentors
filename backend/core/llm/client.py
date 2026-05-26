@@ -1,15 +1,18 @@
 """LLM provider 추상화 (§4.7, ADR-010, ADR-012).
 
 OpenAI / Anthropic / Google Gemini 셋 다 지원. chat()/chat_stream()/embed() 모두
-settings.llm_provider에 따라 분기 (Anthropic은 native 임베딩이 없으므로 embed는
-google/openai 선택 필요).
+provider 인자로 분기. (Anthropic은 native 임베딩이 없으므로 embed는 google/openai
+선택 필요.)
+
+이 모듈은 "API를 어떻게 호출할지"만 담당한다. provider/model 선택, fallback,
+use_case 라우팅 같은 정책은 gateway.py에서.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from core.config import settings
 from core.contracts import MessageRole
@@ -28,6 +31,29 @@ DEFAULT_OPENAI_EMBED_MODEL = "text-embedding-3-small"
 DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_GEMINI_EMBED_MODEL = "gemini-embedding-001"
+
+
+def _resolve_embedding_provider(
+    explicit_provider: Literal["openai", "google"] | None,
+) -> str:
+    """Embedding provider 선택 우선순위.
+
+    1. 명시적 호출 인자 (`embed(text, provider="openai")`)
+    2. ``settings.embedding_provider``  (env: EMBEDDING_PROVIDER)
+    3. ``settings.llm_provider``        (env: LLM_PROVIDER) — backward compat
+
+    EMBEDDING_PROVIDER 설정이 없으면 기존 LLM_PROVIDER를 그대로 따른다 — 즉
+    이번 리팩토링 전에 LLM_PROVIDER=google 로 Gemini embedding을 쓰던 프로젝트는
+    아무 환경변수 추가 없이 동일 동작이 유지된다.
+
+    별도 함수로 둔 이유: unit test에서 settings를 monkeypatch하기 쉽도록.
+    """
+    if explicit_provider is not None:
+        return explicit_provider
+    override = getattr(settings, "embedding_provider", None)
+    if override:
+        return override
+    return settings.llm_provider
 
 
 class LLMClient:
@@ -106,29 +132,73 @@ class LLMClient:
             f"{selected_provider} chat_stream not configured (missing API key)"
         )
 
-    async def embed(self, text: str) -> list[float]:
-        if settings.llm_provider == "openai" and self._openai is not None:
-            try:
-                resp = await self._openai.embeddings.create(
-                    model=DEFAULT_OPENAI_EMBED_MODEL,
-                    input=text,
-                )
-            except Exception as e:
-                raise ExternalServiceError(f"OpenAI embed failed: {e}") from e
-            return list(resp.data[0].embedding)
+    async def embed(
+        self,
+        text: str,
+        provider: Literal["openai", "google"] | None = None,
+    ) -> list[float]:
+        """텍스트 임베딩 생성.
 
-        if settings.llm_provider == "google" and self._google is not None:
+        provider 선택 우선순위:
+            1. 명시적 ``provider`` 인자
+            2. ``settings.embedding_provider`` (env: EMBEDDING_PROVIDER)
+            3. ``settings.llm_provider`` (backward compat)
+
+        ⚠️  자동 fallback 없음.
+            Embedding provider는 벡터 차원(dimension)과 1:1 연결된다
+            (예: OpenAI text-embedding-3-small = 1536, Gemini gemini-embedding-001
+            = 3072). OpenAI 키가 없다고 Google로 조용히 fallback하면 기존 vector DB
+            collection과 dimension mismatch가 발생해 검색이 무용지물이 된다. 따라서
+            지정된 provider의 키가 없으면 명시적 에러를 던진다.
+
+            provider를 변경해야 하면 기존 vector collection을 재생성하거나
+            provider별로 collection을 분리해야 한다.
+
+        EMBEDDING_PROVIDER가 unset이면 backward compatibility를 위해 LLM_PROVIDER를
+        따른다 — 기존 LLM_PROVIDER=google 환경의 Gemini embedding 사용 흐름이
+        그대로 보존된다.
+        """
+        selected_provider = _resolve_embedding_provider(provider)
+
+        if selected_provider == "openai":
+            if self._openai is None:
+                raise ExternalServiceError(
+                    "OpenAI embed not configured. "
+                    "Set OPENAI_API_KEY or choose EMBEDDING_PROVIDER=google."
+                )
+            return await self._openai_embed(text)
+
+        if selected_provider == "google":
+            if self._google is None:
+                raise ExternalServiceError(
+                    "Google Gemini embed not configured. "
+                    "Set GEMINI_API_KEY or choose EMBEDDING_PROVIDER=openai."
+                )
             return await self._google_embed(text)
 
-        if settings.llm_provider == "anthropic":
+        if selected_provider == "anthropic":
             raise ExternalServiceError(
-                "embed() not available for Anthropic (no native embeddings); "
-                "set LLM_PROVIDER=google or openai"
+                "Anthropic does not provide native embeddings. "
+                "Set EMBEDDING_PROVIDER=openai or google."
             )
 
         raise ExternalServiceError(
-            f"{settings.llm_provider} embed not configured (missing API key)"
+            f"Unknown embedding provider '{selected_provider}'. "
+            "Set EMBEDDING_PROVIDER=openai or google."
         )
+
+    # --- Embedding helpers ---
+
+    async def _openai_embed(self, text: str) -> list[float]:
+        assert self._openai is not None
+        try:
+            resp = await self._openai.embeddings.create(
+                model=DEFAULT_OPENAI_EMBED_MODEL,
+                input=text,
+            )
+        except Exception as e:
+            raise ExternalServiceError(f"OpenAI embed failed: {e}") from e
+        return list(resp.data[0].embedding)
 
     # --- OpenAI ---
 
