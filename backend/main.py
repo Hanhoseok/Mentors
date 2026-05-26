@@ -23,9 +23,10 @@ from core.contracts import MessageRole
 from core.db import engine
 from core.event_bus import event_bus
 from core.exceptions import register_exception_handlers
-from core.jobs import start_scheduler, stop_scheduler
+from core.jobs import scheduler, start_scheduler, stop_scheduler
 from core.llm import Message, llm
 from core.logging import setup_logging
+from core.market_data.jobs import register_market_data_jobs
 from core.middlewares import LoggingMiddleware, RequestIdMiddleware
 from core.push import push
 from core.push import router as push_router
@@ -47,6 +48,7 @@ _DEV_LOCAL_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("startup")
     await event_bus.start()
+    register_market_data_jobs(scheduler)
     await start_scheduler()
     push.init()
     yield
