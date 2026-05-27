@@ -28,6 +28,11 @@ export function LoginScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  function handleDevBypass() {
+    resetOnboarding();
+    setAccessToken('mock-token-for-dev-testing');
+  }
+
   async function handleLogin() {
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
@@ -139,6 +144,11 @@ export function LoginScreen() {
                 <Text style={styles.footerLink}>회원가입</Text>
               </Pressable>
             </View>
+
+            {/* Developer Bypass Button */}
+            <Pressable onPress={handleDevBypass} style={styles.devBypassButton}>
+              <Text style={styles.devBypassButtonText}>[개발자 모드] 로그인 건너뛰기</Text>
+            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -269,5 +279,19 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.9,
+  },
+  devBypassButton: {
+    alignItems: 'center',
+    borderColor: '#E7EAE7',
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: 'center',
+    marginTop: 16,
+  },
+  devBypassButtonText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
