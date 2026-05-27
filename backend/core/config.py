@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     content_llm_provider: Literal["openai", "anthropic", "google"] | None = None
     debate_llm_provider: Literal["openai", "anthropic", "google"] | None = None
 
+    # News collectors
+    finnhub_api_key: str | None = None
+
     naver_client_id: str | None = None
     naver_client_secret: str | None = None
     llm_stream_timeout_s: int = 60
