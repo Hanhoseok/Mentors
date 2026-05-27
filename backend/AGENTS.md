@@ -13,7 +13,7 @@
 - **서비스**: Mentors — 2030 초보 투자자를 위한 AI 투자 멘토. "전략을 주는 게 아니라 전략이 태어날 환경을 제공"한다.
 - **백엔드 형태**: Modular Monolith. FastAPI + PostgreSQL + Redis + Chroma + OpenAI/Anthropic + FCM.
 - **6개 동 (`features/`)**: onboarding, learning, growth, debate, content, daily_report — 각 동에 owner 1명.
-- **16 코어 모듈 (`core/`)**: 동들이 공유하는 공용 시설. 동 owner는 **수정 안 한다.** 변경이 필요하면 PR.
+- **17 코어 모듈 (`core/`)**: 동들이 공유하는 공용 시설. 동 owner는 **수정 안 한다.** 변경이 필요하면 PR.
 - **핵심 원칙 3개**:
   1. 자기 동 폴더만 수정한다. 다른 동을 직접 import하지 않는다.
   2. 옆 동의 데이터를 읽을 땐 코어를 통과한다 (`user_context` / `read_services`).
@@ -73,6 +73,7 @@ from core.cache import make_cache
 from core.auth.dependencies import get_current_user
 from core.exceptions import NotFoundError, BadRequestError, ConflictError
 from core.jobs import cron, interval                          # 스케줄
+from core.market_data.repository import find_entity_match      # 시장 데이터 캐시
 from core.push import push                                    # FCM
 ```
 
@@ -430,3 +431,4 @@ contracts 변경 시: `contracts: <설명>` (모든 동 owner 알림)
 | 2026-05-09 | 최초 작성 (코어인프라_설계명세서 v1.1과 정렬) |
 | 2026-05-10 | §0 셋업 섹션을 SETUP.md로 분리 / 상단 시점 표현(1주차·2주차) 일반화 / §12 자동 갱신 규칙 추가 |
 | 2026-05-11 | docs/ 참조 4곳 제거 — 본 문서가 단일 진실의 원천 (코드 직접 read 권장). docs/ 폴더는 그대로 유지 (비상시 reference) |
+| 2026-05-27 | core/market_data 시장 데이터 캐시 모듈 추가 |

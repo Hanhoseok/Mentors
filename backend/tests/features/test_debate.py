@@ -153,6 +153,8 @@ async def test_start_debate_accepts_english_company_outlook_topic() -> None:
         ("연준이 금리 내리면 한국 증시는 어떻게 돼?", "금리 인하가 주식시장과 기업가치에 미치는 영향"),
         ("원달러 환율이 계속 올라가면 수출주는 유리해?", "환율 변화가 투자 판단에 미치는 영향"),
         ("애플 실적 부진해도 장기투자 괜찮아?", "애플 실적 부진해도 장기 투자"),
+        ("앞으로 우주테크 관련주의 전망", "앞으로 우주테크 관련주의 전망"),
+        ("양자컴퓨팅 관련주 전망", "양자컴퓨팅 관련주 전망"),
     ],
 )
 async def test_start_debate_accepts_broad_investment_input_types(
@@ -690,6 +692,26 @@ def test_ev_theme_news_queries_do_not_collapse_into_battery_only() -> None:
     assert "전기차 배터리 가격 소비자 수요" in queries
 
 
+@pytest.mark.parametrize(
+    ("topic", "expected_first"),
+    [
+        ("앞으로 우주테크 관련주의 전망", "우주테크 관련주 전망"),
+        ("양자컴퓨팅 관련주 전망", "양자컴퓨팅 관련주 전망"),
+        ("전력망 투자 전망", "전력망 관련주 전망"),
+    ],
+)
+def test_unknown_theme_news_queries_use_investment_subject_without_manual_aliases(
+    topic: str,
+    expected_first: str,
+) -> None:
+    queries = debate_router._news_queries(topic)
+
+    assert queries[0] == expected_first
+    assert any("산업 성장성" in query for query in queries)
+    assert any("투자 리스크" in query for query in queries)
+    assert all("전망 전망" not in query for query in queries)
+
+
 def test_low_signal_news_filters_community_and_video_sources() -> None:
     assert debate_service.is_low_signal_news(
         "AI 주식 개인 투자자 현실 경험담",
@@ -786,6 +808,29 @@ def test_filter_topic_documents_prefers_strong_topic_match() -> None:
     filtered = debate_router._filter_topic_documents("AI 주식 거품인가", [unrelated_doc, ai_doc])
 
     assert [doc.id for doc in filtered] == ["ai"]
+
+
+def test_filter_topic_documents_ranks_title_match_before_weak_text_match() -> None:
+    weak = Document(
+        id="weak",
+        text="우주테크 관련주가 언급됐지만 본문 대부분은 다른 산업 이야기다.",
+        metadata={
+            "title": "오늘의 증시 흐름",
+            "published_at": "Thu, 21 May 2026 05:43:11 GMT",
+        },
+    )
+    strong = Document(
+        id="strong",
+        text="위성, 발사체, 방산 수요가 투자 판단 변수로 꼽힌다.",
+        metadata={
+            "title": "우주테크 관련주 전망과 정책 수혜",
+            "published_at": "Wed, 20 May 2026 09:26:00 GMT",
+        },
+    )
+
+    filtered = debate_router._filter_topic_documents("앞으로 우주테크 관련주의 전망", [weak, strong])
+
+    assert [doc.id for doc in filtered] == ["strong", "weak"]
 
 
 def test_parse_debate_script_reads_three_turns() -> None:

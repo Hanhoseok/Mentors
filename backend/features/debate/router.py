@@ -39,6 +39,7 @@ from core.exceptions import (
 )
 from core.user_context import user_context
 from core.vector_store import Document
+from features.debate import service as debate_service
 from features.debate.models import DebateMessage, DebateSession
 from features.debate.personas import (
     DEFAULT_PERSONA_A,
@@ -48,7 +49,7 @@ from features.debate.personas import (
     has_persona,
     list_personas,
 )
-from features.debate import service as debate_service
+from features.debate.topic_resolver import resolve_with_market_data
 
 router = APIRouter(prefix="/api/debate", tags=["debate"])
 logger = logging.getLogger("debate")
@@ -122,7 +123,8 @@ async def start_debate(
         raise BadRequestError(input_check.reason)
     if _is_lifestyle_choice_topic(raw_topic):
         raise BadRequestError("투기장은 투자·경제·산업 관련 주제로만 토론할 수 있습니다.")
-    topic = await _extract_debate_topic(raw_topic)
+    market_resolution = await _resolve_market_topic(raw_topic, db)
+    topic = market_resolution or await _extract_debate_topic(raw_topic)
     if not _is_investment_topic(topic):
         raise BadRequestError("투기장은 투자·경제·산업 관련 주제로만 토론할 수 있습니다.")
     if not has_persona(req.persona_a_id) or not has_persona(req.persona_b_id):
@@ -375,8 +377,18 @@ async def _search_news_documents(topic: str) -> list[Document]:
     documents: list[Document] = []
     for query in _news_queries(topic):
         documents.extend(await news_search.search(query, top_k=2))
-    relevant = _filter_topic_documents(topic, _dedupe_documents(documents))
-    return _sort_recent_documents(relevant)[:5]
+    return _filter_topic_documents(topic, _dedupe_documents(documents))[:5]
+
+
+async def _resolve_market_topic(raw_topic: str, db: AsyncSession) -> str | None:
+    if not hasattr(db, "execute"):
+        return None
+    try:
+        resolution = await resolve_with_market_data(raw_topic, db)
+    except Exception:
+        logger.warning("debate.market_topic_resolve_failed", exc_info=True)
+        return None
+    return resolution.topic if resolution else None
 
 
 def _news_queries(topic: str) -> list[str]:
@@ -395,6 +407,7 @@ def _news_queries(topic: str) -> list[str]:
         company_queries = _company_news_queries(topic, base)
         if company_queries:
             return _unique_preserve_order(company_queries)
+        base = re.sub(r"\s+전망$", "", base)
         return _unique_preserve_order(
             [
                 base,
@@ -432,7 +445,29 @@ def _classify_topic(topic: str) -> str:
         re.IGNORECASE,
     ):
         return "theme"
+    if _looks_like_theme_investment_topic(compact):
+        return "theme"
+    if _has_stock_specific_intent(compact):
+        return "stock"
     return "general"
+
+
+def _looks_like_theme_investment_topic(topic: str) -> bool:
+    has_investment_intent = re.search(
+        r"관련주|테마주|수혜주|섹터|산업|업황|성장성|모멘텀|밸류에이션|시장",
+        topic,
+        re.IGNORECASE,
+    )
+    has_lifestyle_intent = re.search(
+        r"먹|마시|점심|저녁|아침|야식|메뉴|맛집|식당|카페|커피|버거|햄버거|치킨|피자|라면|떡볶이|여행|영화|데이트",
+        topic,
+        re.IGNORECASE,
+    )
+    return bool(has_investment_intent and not has_lifestyle_intent)
+
+
+def _has_stock_specific_intent(topic: str) -> bool:
+    return bool(re.search(r"주식|주가|실적|배당|매수|매도|오너리스크", topic, re.IGNORECASE))
 
 
 def _has_company_mention(topic: str) -> bool:
@@ -598,6 +633,7 @@ def _company_news_queries(topic: str, base: str) -> list[str]:
 
 def _theme_news_queries(topic: str, base: str) -> list[str]:
     compact = topic.lower()
+    subject = _theme_subject(topic)
     if "비트코인" in topic or "btc" in compact:
         return [
             "비트코인 가격 전망 금리 유동성",
@@ -636,7 +672,7 @@ def _theme_news_queries(topic: str, base: str) -> list[str]:
             f"{base} 최신 뉴스",
             _risk_query(base),
         ]
-    if "원전" in topic or "전력" in topic:
+    if "원전" in topic or ("전력" in topic and "전력망" not in topic):
         return [
             "전력 수요 증가 원전 투자 전망",
             "원전 수주 정책 리스크",
@@ -652,7 +688,6 @@ def _theme_news_queries(topic: str, base: str) -> list[str]:
             f"{subject} 최신 뉴스",
         ]
     if "게임" in topic or "엔터" in topic or "바이오" in topic or "로봇" in topic:
-        subject = _theme_subject(topic)
         return [
             f"{subject} 산업 전망",
             f"{subject} 실적 전망",
@@ -660,10 +695,11 @@ def _theme_news_queries(topic: str, base: str) -> list[str]:
             f"{subject} 최신 뉴스",
         ]
     return [
-        f"{base} 산업 전망",
-        f"{base} 실적 전망",
-        f"{base} 밸류에이션 리스크",
-        f"{base} 최신 뉴스",
+        f"{subject} 관련주 전망",
+        f"{subject} 산업 성장성",
+        f"{subject} 수혜주 리스크",
+        f"{subject} 투자 리스크",
+        f"{subject} 최신 뉴스",
     ]
 
 
@@ -697,7 +733,10 @@ def _theme_subject(topic: str) -> str:
     for subject in ["게임", "엔터", "바이오", "로봇"]:
         if subject in topic:
             return subject
-    return _topic_keywords(topic, limit=1)[0] if _topic_keywords(topic, limit=1) else topic
+    keywords = _topic_keywords(topic, limit=3)
+    if not keywords:
+        return topic
+    return " ".join(keywords[:2]) if len(keywords[0]) <= 2 and len(keywords) > 1 else keywords[0]
 
 
 def _topic_keywords(topic: str, limit: int = 4) -> list[str]:
@@ -736,6 +775,11 @@ def _topic_keywords(topic: str, limit: int = 4) -> list[str]:
         "뉴스",
         "최신",
         "오늘",
+        "앞으로",
+        "관련주",
+        "관련주의",
+        "테마주",
+        "수혜주",
     }
     keywords: list[str] = []
     for token in cleaned.split():
@@ -768,31 +812,42 @@ def _strong_topic_keywords(topic: str) -> list[str]:
 def _filter_topic_documents(topic: str, documents: list[Document]) -> list[Document]:
     keywords = _strong_topic_keywords(topic)
     if not keywords:
-        return documents
+        return _sort_recent_documents(documents)
 
-    matched = [
-        doc
-        for doc in documents
-        if _document_matches_keywords(doc, keywords)
-        and not debate_service.is_low_signal_news(
+    scored: list[tuple[int, float, Document]] = []
+    for doc in documents:
+        if debate_service.is_low_signal_news(
             str(doc.metadata.get("title") or doc.metadata.get("headline") or ""),
             str(doc.metadata.get("source") or ""),
             str(doc.metadata.get("url") or ""),
-        )
-    ]
-    return matched or documents
+        ):
+            continue
+        score = _document_topic_score(doc, keywords)
+        if score > 0:
+            scored.append((score, _published_timestamp(doc), doc))
+    if not scored:
+        return _sort_recent_documents(documents)
+    return [doc for _, _, doc in sorted(scored, key=lambda item: (item[0], item[1]), reverse=True)]
 
 
 def _document_matches_keywords(doc: Document, keywords: list[str]) -> bool:
-    haystack = " ".join(
-        [
-            doc.text,
-            str(doc.metadata.get("title") or ""),
-            str(doc.metadata.get("headline") or ""),
-            str(doc.metadata.get("source") or ""),
-        ]
-    ).lower()
-    return any(keyword.lower() in haystack for keyword in keywords)
+    return _document_topic_score(doc, keywords) > 0
+
+
+def _document_topic_score(doc: Document, keywords: list[str]) -> int:
+    title = str(doc.metadata.get("title") or doc.metadata.get("headline") or "").lower()
+    source = str(doc.metadata.get("source") or "").lower()
+    text = doc.text.lower()
+    score = 0
+    for keyword in keywords:
+        key = keyword.lower()
+        if key in title:
+            score += 4
+        if key in text:
+            score += 2
+        if key in source:
+            score += 1
+    return score
 
 
 def _unique_preserve_order(values: list[str]) -> list[str]:

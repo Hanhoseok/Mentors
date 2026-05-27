@@ -54,6 +54,8 @@ class Settings(BaseSettings):
 
     scheduler_timezone: str = "Asia/Seoul"
     scheduler_jobstore_url: str | None = None
+    market_data_refresh_enabled: bool = False
+    market_data_refresh_interval_minutes: int = 360
 
     @property
     def effective_jobstore_url(self) -> str:
