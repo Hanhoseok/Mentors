@@ -33,21 +33,20 @@ import {
   learningChatMentors,
   resolveSuggestedLearningMentorId,
 } from '@/features/chat/data';
-import {
-  shouldSubmitChatOnKeyPress,
-} from '@/features/chat/logic';
+import { shouldSubmitChatOnKeyPress } from '@/features/chat/logic';
 import type { LearningChatFollowUpQuiz, LearningChatMentorId } from '@/features/chat/types';
-import { getCurrentTierQuizzes, getLearningApiErrorMessage, submitLearningQuiz } from '@/features/learning/api';
+import {
+  getCurrentTierQuizzes,
+  getLearningApiErrorMessage,
+  submitLearningQuiz,
+} from '@/features/learning/api';
 import type {
   SubmitLearningQuizResponse,
   TierQuizCatalogResponse,
 } from '@/features/learning/types';
 import type { GrowthProgressResponse } from '@/features/growth/types';
 import { useUserStore } from '@/store/userStore';
-import {
-  applyOptimisticSolvedQuizProgress,
-  buildGrowthProgressQueryKey,
-} from '../growth/logic';
+import { applyOptimisticSolvedQuizProgress, buildGrowthProgressQueryKey } from '../growth/logic';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 
 type MentorChatRoute = RouteProp<MainTabParamList, 'MentorChat'>;
@@ -91,8 +90,8 @@ export function MentorChatScreen() {
   const onboardingProfile = useUserStore((state) => state.onboardingProfile);
   const scrollViewRef = useRef<ScrollView | null>(null);
 
-  const [selectedMentorId, setSelectedMentorId] = useState<LearningChatMentorId>(() =>
-    route.params?.mentorId ?? resolveSuggestedLearningMentorId(onboardingProfile),
+  const [selectedMentorId, setSelectedMentorId] = useState<LearningChatMentorId>(
+    () => route.params?.mentorId ?? resolveSuggestedLearningMentorId(onboardingProfile),
   );
   const [activeSessionId, setActiveSessionId] = useState<number | null>(
     route.params?.sessionId ?? null,
@@ -238,7 +237,12 @@ export function MentorChatScreen() {
 
   useEffect(() => {
     scrollViewRef.current?.scrollToEnd({ animated: true });
-  }, [followUpQuiz, messagesQuery.data?.messages.length, pendingUserMessage, streamingAssistantText]);
+  }, [
+    followUpQuiz,
+    messagesQuery.data?.messages.length,
+    pendingUserMessage,
+    streamingAssistantText,
+  ]);
 
   const renderedMessages = useMemo<RenderedMessage[]>(() => {
     const baseMessages: RenderedMessage[] = (messagesQuery.data?.messages ?? []).map((message) => ({
@@ -376,7 +380,8 @@ export function MentorChatScreen() {
     if (
       !shouldSubmitChatOnKeyPress({
         key: event.nativeEvent.key,
-        shiftKey: (event.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean }).shiftKey,
+        shiftKey: (event.nativeEvent as TextInputKeyPressEventData & { shiftKey?: boolean })
+          .shiftKey,
         isComposing: (event.nativeEvent as TextInputKeyPressEventData & { isComposing?: boolean })
           .isComposing,
       })
@@ -399,8 +404,8 @@ export function MentorChatScreen() {
             <Text style={styles.headerEyebrow}>멘토 채팅</Text>
             <Text style={styles.headerTitle}>멘토와 실시간으로 개념을 정리해 보세요</Text>
             <Text style={styles.headerDescription}>
-              가치, 성장, 배당, 모멘텀 관점을 가진 멘토에게 질문하고, 필요한 경우 팔로우업
-              퀴즈로 이해도를 바로 점검할 수 있어요.
+              가치, 성장, 배당, 모멘텀 관점을 가진 멘토에게 질문하고, 필요한 경우 팔로우업 퀴즈로
+              이해도를 바로 점검할 수 있어요.
             </Text>
           </View>
           <View style={styles.headerActionRow}>
@@ -506,7 +511,9 @@ export function MentorChatScreen() {
                   ]}
                 >
                   {!isUser ? (
-                    <Text style={[styles.messageMentorLabel, { color: selectedMentor.accentColor }]}>
+                    <Text
+                      style={[styles.messageMentorLabel, { color: selectedMentor.accentColor }]}
+                    >
                       {selectedMentor.label}
                     </Text>
                   ) : null}
@@ -563,7 +570,9 @@ export function MentorChatScreen() {
                 })}
               </View>
 
-              {quizErrorMessage ? <Text style={styles.quizErrorText}>{quizErrorMessage}</Text> : null}
+              {quizErrorMessage ? (
+                <Text style={styles.quizErrorText}>{quizErrorMessage}</Text>
+              ) : null}
               {quizResult ? (
                 <View style={styles.quizResultBox}>
                   <Text style={styles.quizResultTitle}>

@@ -15,12 +15,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
+import { deleteCurrentUser, getAuthApiErrorMessage, getCurrentUser } from '@/features/auth/api';
 import {
-  deleteCurrentUser,
-  getAuthApiErrorMessage,
-  getCurrentUser,
-} from '@/features/auth/api';
-import { resetOnboardingProfile, getOnboardingStatus, saveOnboardingProfile } from '@/features/onboarding/api';
+  resetOnboardingProfile,
+  getOnboardingStatus,
+  saveOnboardingProfile,
+} from '@/features/onboarding/api';
 import type { InterestTag, PreferredStyle } from '@/features/onboarding/types';
 import { useUserStore } from '@/store/userStore';
 import { SelectionChip } from '../components/SelectionChip';
@@ -184,7 +184,9 @@ export function SettingsScreen() {
   const dailyReportReminderEnabled = useSettingsStore((state) => state.dailyReportReminderEnabled);
   const reminderTime = useSettingsStore((state) => state.reminderTime);
   const setLearningReminderEnabled = useSettingsStore((state) => state.setLearningReminderEnabled);
-  const setDailyReportReminderEnabled = useSettingsStore((state) => state.setDailyReportReminderEnabled);
+  const setDailyReportReminderEnabled = useSettingsStore(
+    (state) => state.setDailyReportReminderEnabled,
+  );
   const setReminderTime = useSettingsStore((state) => state.setReminderTime);
   const resetSettings = useSettingsStore((state) => state.reset);
 
@@ -249,7 +251,10 @@ export function SettingsScreen() {
     },
     onError: (error) => {
       setLearningSaveMessage(
-        getAuthApiErrorMessage(error, '온보딩을 다시 시작하지 못했어요. 잠시 후 다시 시도해 주세요.'),
+        getAuthApiErrorMessage(
+          error,
+          '온보딩을 다시 시작하지 못했어요. 잠시 후 다시 시도해 주세요.',
+        ),
       );
     },
   });
@@ -301,7 +306,10 @@ export function SettingsScreen() {
       setNotificationMessage('알림 설정을 적용했어요.');
     } catch (error) {
       setNotificationMessage(
-        getAuthApiErrorMessage(error, '알림 설정을 적용하지 못했어요. 기기 권한을 다시 확인해주세요.'),
+        getAuthApiErrorMessage(
+          error,
+          '알림 설정을 적용하지 못했어요. 기기 권한을 다시 확인해주세요.',
+        ),
       );
     }
   }
@@ -400,8 +408,8 @@ export function SettingsScreen() {
   return (
     <SafeAreaView style={styles.screen}>
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.hero}>
-            <Text style={styles.heroEyebrow}>개인 설정</Text>
+        <View style={styles.hero}>
+          <Text style={styles.heroEyebrow}>개인 설정</Text>
           <Text style={styles.heroTitle}>내 학습 환경을 정리해보세요</Text>
           <Text style={styles.heroDescription}>
             계정 정보, 학습 취향, 리마인드 시간을 한곳에서 관리할 수 있어요.
@@ -451,7 +459,10 @@ export function SettingsScreen() {
 
           <View style={styles.actionColumn}>
             <ActionButton label="로그아웃" onPress={handleLogout} />
-            <ActionButton label="채팅 기록 보기" onPress={() => navigation.navigate('ChatHistory')} />
+            <ActionButton
+              label="채팅 기록 보기"
+              onPress={() => navigation.navigate('ChatHistory')}
+            />
             <ActionButton
               label={deleteAccountMutation.isPending ? '계정 삭제 중...' : '계정 삭제'}
               tone="danger"
@@ -479,7 +490,9 @@ export function SettingsScreen() {
                   선택한 주제 기반으로 리포트와 뉴스가 추천돼요.
                 </Text>
                 <Text style={styles.preferenceLinkValue}>{interestSummary}</Text>
-                <Text style={styles.preferenceLinkMeta}>현재 {selectedInterests.length}개 선택됨</Text>
+                <Text style={styles.preferenceLinkMeta}>
+                  현재 {selectedInterests.length}개 선택됨
+                </Text>
               </View>
               <Text style={styles.preferenceLinkArrow}>›</Text>
             </Pressable>
@@ -503,7 +516,9 @@ export function SettingsScreen() {
             </View>
           </View>
 
-          {learningSaveMessage ? <Text style={styles.feedbackText}>{learningSaveMessage}</Text> : null}
+          {learningSaveMessage ? (
+            <Text style={styles.feedbackText}>{learningSaveMessage}</Text>
+          ) : null}
 
           <View style={styles.actionColumn}>
             <ActionButton
@@ -589,7 +604,9 @@ export function SettingsScreen() {
             </View>
           </View>
 
-          {notificationMessage ? <Text style={styles.feedbackText}>{notificationMessage}</Text> : null}
+          {notificationMessage ? (
+            <Text style={styles.feedbackText}>{notificationMessage}</Text>
+          ) : null}
         </Section>
       </ScrollView>
     </SafeAreaView>

@@ -215,7 +215,9 @@ function QuizCard({
                     pressed && styles.quizOptionButtonPressed,
                   ]}
                 >
-                  <Text style={[styles.quizOptionIndex, selected && styles.quizOptionIndexSelected]}>
+                  <Text
+                    style={[styles.quizOptionIndex, selected && styles.quizOptionIndexSelected]}
+                  >
                     {option.index + 1}
                   </Text>
                   <Text style={[styles.quizOptionText, selected && styles.quizOptionTextSelected]}>
@@ -397,8 +399,7 @@ export function LearningRecordScreen() {
       let nextState: QuizSubmissionState = {
         ...initialState,
         syncState: 'delayed',
-        message:
-          '정답은 저장됐어요. 성장 게이지 반영은 서버 응답 시점에 따라 조금 늦을 수 있어요.',
+        message: '정답은 저장됐어요. 성장 게이지 반영은 서버 응답 시점에 따라 조금 늦을 수 있어요.',
       };
 
       try {
@@ -456,10 +457,7 @@ export function LearningRecordScreen() {
     ? getGrowthApiErrorMessage(growthProgressQuery.error, '성장 정보를 불러오지 못했어요.')
     : null;
   const learningErrorMessage = learningQuizzesQuery.error
-    ? getLearningApiErrorMessage(
-        learningQuizzesQuery.error,
-        '현재 티어 퀴즈를 불러오지 못했어요.',
-      )
+    ? getLearningApiErrorMessage(learningQuizzesQuery.error, '현재 티어 퀴즈를 불러오지 못했어요.')
     : null;
   const quizCount = learningQuizzesQuery.data?.quizzes.length ?? 0;
   const segmentLabels = getLearningRecordSegments({

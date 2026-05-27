@@ -14,14 +14,20 @@ export async function getOnboardingStatus(): Promise<OnboardingStatusResponse> {
 export async function saveOnboardingProfile(
   payload: OnboardingProfilePayload,
 ): Promise<OnboardingProfileResponse> {
-  const response = await apiClient.post<OnboardingProfileResponse>('/api/onboarding/profile', payload);
+  const response = await apiClient.post<OnboardingProfileResponse>(
+    '/api/onboarding/profile',
+    payload,
+  );
   return response.data;
 }
 
 export async function saveMentorSelection(
   payload: MentorSelectionPayload,
 ): Promise<OnboardingStatusResponse> {
-  const response = await apiClient.post<OnboardingStatusResponse>('/api/onboarding/select-mentor', payload);
+  const response = await apiClient.post<OnboardingStatusResponse>(
+    '/api/onboarding/select-mentor',
+    payload,
+  );
   return response.data;
 }
 

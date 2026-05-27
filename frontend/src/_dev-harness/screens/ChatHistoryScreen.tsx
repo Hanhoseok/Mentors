@@ -69,7 +69,8 @@ export function ChatHistoryScreen() {
           <Text style={styles.heroEyebrow}>채팅 기록</Text>
           <Text style={styles.heroTitle}>이전 멘토 대화를 다시 이어갈 수 있어요</Text>
           <Text style={styles.heroDescription}>
-            최근 세션을 카드로 묶어 두었어요. 원하는 대화를 누르면 같은 멘토와 바로 이어서 학습할 수 있어요.
+            최근 세션을 카드로 묶어 두었어요. 원하는 대화를 누르면 같은 멘토와 바로 이어서 학습할 수
+            있어요.
           </Text>
         </View>
 

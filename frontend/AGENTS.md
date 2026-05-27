@@ -122,11 +122,11 @@ import { DevLoginScreen } from '@/_dev-harness/screens/DevLoginScreen';  // ❌
 
 ```ts
 // _dev-harness 안에서:
-import { colors } from '@/constants/colors';                            // 디자인 토큰
-import { useUserStore } from '@/store/userStore';                       // 전역 상태
-import { issueDevAccessToken } from '@/features/auth/api';              // 백엔드 동 wrapper
+import { colors } from '@/constants/colors'; // 디자인 토큰
+import { useUserStore } from '@/store/userStore'; // 전역 상태
+import { issueDevAccessToken } from '@/features/auth/api'; // 백엔드 동 wrapper
 import { saveOnboardingProfile } from '@/features/onboarding/api';
-import { GrowthProgressCard } from '../components/GrowthProgressCard';  // 같은 harness 내부
+import { GrowthProgressCard } from '../components/GrowthProgressCard'; // 같은 harness 내부
 import type { RootStackParamList } from '../navigation/types';
 
 // 진짜 frontend screens/ 안에서:
@@ -207,7 +207,7 @@ import type { CompletedOnboardingProfile } from '@/features/onboarding/types';
 
 ## 8. 변경 이력
 
-| 날짜 | 변경 | by |
-|---|---|---|
+| 날짜       | 변경                                         | by      |
+| ---------- | -------------------------------------------- | ------- |
 | 2026-05-24 | 초안 작성 + `_dev-harness/` 분리 컨벤션 도입 | wang-gw |
 | 2026-05-27 | 파일 단위 ownership으로 룰 명확화 (§2.2 whitelist), 백엔드/프론트엔드 1:1 매칭 불일치 설명 추가 (§7), 모호 시 처리 룰 추가 (§2.3) | wang-gw |

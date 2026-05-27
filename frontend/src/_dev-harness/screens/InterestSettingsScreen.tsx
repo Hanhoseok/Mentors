@@ -2,14 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { type NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { getAuthApiErrorMessage } from '@/features/auth/api';
@@ -25,10 +18,7 @@ import {
   hasLearningPreferenceChanges,
 } from '../settings/logic';
 
-type InterestSettingsNavigation = NativeStackNavigationProp<
-  RootStackParamList,
-  'InterestSettings'
->;
+type InterestSettingsNavigation = NativeStackNavigationProp<RootStackParamList, 'InterestSettings'>;
 
 function InterestPill({
   label,
@@ -159,9 +149,7 @@ export function InterestSettingsScreen() {
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.description}>
-              선택한 주제 기반으로 리포트와 뉴스가 추천돼요
-            </Text>
+            <Text style={styles.description}>선택한 주제 기반으로 리포트와 뉴스가 추천돼요</Text>
             <Text style={styles.countLabel}>현재 {selectedCount}개 선택됨</Text>
 
             <View style={styles.pillGrid}>

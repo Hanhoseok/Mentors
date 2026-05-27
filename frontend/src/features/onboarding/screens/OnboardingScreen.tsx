@@ -14,11 +14,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { colors } from '@/constants/colors';
 import { useUserStore } from '@/store/userStore';
 import { saveOnboardingProfile, saveMentorSelection, getOnboardingStatus } from '../api';
-import type {
-  MentorRecommendation,
-  OnboardingSurvey,
-  OnboardingSyncState,
-} from '../types';
+import type { MentorRecommendation, OnboardingSurvey, OnboardingSyncState } from '../types';
 import {
   ageOptions,
   experienceOptions,
@@ -297,7 +293,7 @@ export function OnboardingScreen() {
     selectedInterests.forEach((interest) => {
       // Try to find if this belongs to a parent category backend tag
       const matchedCategory = interestCategories.find(
-        (c) => c.children.includes(interest) || c.name === interest
+        (c) => c.children.includes(interest) || c.name === interest,
       );
       if (matchedCategory && !mappedBackendTags.includes(matchedCategory.backendTag)) {
         mappedBackendTags.push(matchedCategory.backendTag);
@@ -345,11 +341,11 @@ export function OnboardingScreen() {
 
     try {
       const response = await profileMutation.mutateAsync({
-        experience_level: selectedExperience || 'beginner',
-        risk_profile: selectedRisk || 'steady',
+        experience_level: (selectedExperience as any) || 'beginner',
+        risk_profile: (selectedRisk as any) || 'steady',
         learning_goal: mappedGoal,
         preferred_style: 'gentle',
-        interests: interestsPayload,
+        interests: interestsPayload as any,
         answers: answersPayload,
       });
 
@@ -368,7 +364,12 @@ export function OnboardingScreen() {
         riskMatch: [],
         styleMatch: [],
         goalMatch: [],
-        strengths: m.id === 1 ? ['가치투자 기초', '장기 복리 관점'] : m.id === 2 ? ['생활밀착형 분석', '성장주 감각'] : ['거시 흐름 해석', '자산 배분'],
+        strengths:
+          m.id === 1
+            ? ['가치투자 기초', '장기 복리 관점']
+            : m.id === 2
+              ? ['생활밀착형 분석', '성장주 감각']
+              : ['거시 흐름 해석', '자산 배분'],
         score: response.recommended_mentors.length - idx,
         reasons: [m.reason],
       }));
@@ -569,7 +570,9 @@ export function OnboardingScreen() {
                           selectedExperience === opt.value && styles.radioOuterSelected,
                         ]}
                       >
-                        {selectedExperience === opt.value ? <View style={styles.radioInner} /> : null}
+                        {selectedExperience === opt.value ? (
+                          <View style={styles.radioInner} />
+                        ) : null}
                       </View>
                       <View style={styles.labelGroup}>
                         <Text style={styles.optionLabelBold}>{opt.label}</Text>
@@ -750,9 +753,7 @@ export function OnboardingScreen() {
                 {profileMutation.isPending ? (
                   <ActivityIndicator color={colors.surface} />
                 ) : (
-                  <Text style={styles.primaryButtonText}>
-                    {step === 6 ? '시작하기' : '다음'}
-                  </Text>
+                  <Text style={styles.primaryButtonText}>{step === 6 ? '시작하기' : '다음'}</Text>
                 )}
               </Pressable>
             </View>
@@ -766,9 +767,7 @@ export function OnboardingScreen() {
             >
               <Text style={styles.subtitle}>분석 완료!</Text>
               <Text style={styles.title}>투자 설향 분석 결과로 추천하는 멘토들입니다</Text>
-              <Text style={styles.helperText}>
-                같이 학습을 시작할 멘토를 탭하여 선택해 주세요.
-              </Text>
+              <Text style={styles.helperText}>같이 학습을 시작할 멘토를 탭하여 선택해 주세요.</Text>
 
               <View style={styles.mentorList}>
                 {recommendedMentors.map((mentor) => (

@@ -10,7 +10,8 @@ export function HomeScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>멘토스 홈 (개발 예정)</Text>
       <Text style={styles.description}>
-        진짜 프론트엔드의 메인 홈 화면이 렌더링될 자리입니다. 현재 온보딩 완료 처리가 되어 이 페이지에 성공적으로 연결되었습니다.
+        진짜 프론트엔드의 메인 홈 화면이 렌더링될 자리입니다. 현재 온보딩 완료 처리가 되어 이
+        페이지에 성공적으로 연결되었습니다.
       </Text>
 
       <Pressable onPress={resetOnboarding} style={styles.primaryButton}>

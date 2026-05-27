@@ -63,10 +63,7 @@ export function SignupScreen() {
       setAccessToken(response.access_token);
     } catch (error) {
       setErrorMsg(
-        getAuthApiErrorMessage(
-          error,
-          '회원가입에 실패했습니다. 입력한 정보를 다시 확인해 주세요.'
-        )
+        getAuthApiErrorMessage(error, '회원가입에 실패했습니다. 입력한 정보를 다시 확인해 주세요.'),
       );
     } finally {
       setIsSubmitting(false);

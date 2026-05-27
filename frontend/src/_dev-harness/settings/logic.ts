@@ -75,7 +75,7 @@ export function formatReminderTime(value: string): string {
 export function shiftReminderTime(value: string, minuteDelta: number): string {
   const { hour, minute } = parseReminderTime(value);
   const baseMinutes = hour * 60 + minute;
-  const totalMinutes = ((baseMinutes + minuteDelta) % 1440 + 1440) % 1440;
+  const totalMinutes = (((baseMinutes + minuteDelta) % 1440) + 1440) % 1440;
   const nextHour = Math.floor(totalMinutes / 60);
   const nextMinute = totalMinutes % 60;
   return `${String(nextHour).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`;

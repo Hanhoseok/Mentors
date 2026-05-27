@@ -90,7 +90,9 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
-  parseAuthCallbackParams('?error=%EA%B5%AC%EA%B8%80+%EB%A1%9C%EA%B7%B8%EC%9D%B8+%EC%8B%A4%ED%8C%A8'),
+  parseAuthCallbackParams(
+    '?error=%EA%B5%AC%EA%B8%80+%EB%A1%9C%EA%B7%B8%EC%9D%B8+%EC%8B%A4%ED%8C%A8',
+  ),
   {
     token: null,
     error: '구글 로그인 실패',

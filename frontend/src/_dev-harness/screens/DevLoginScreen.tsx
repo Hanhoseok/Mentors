@@ -247,7 +247,11 @@ export function DevLoginScreen() {
           </View>
 
           <View style={styles.tabRow}>
-            <AuthTab label="로그인" selected={!isSignupMode} onPress={() => handleSwitchMode('login')} />
+            <AuthTab
+              label="로그인"
+              selected={!isSignupMode}
+              onPress={() => handleSwitchMode('login')}
+            />
             <AuthTab
               label="회원가입"
               selected={isSignupMode}
@@ -341,7 +345,9 @@ export function DevLoginScreen() {
               >
                 <Text style={styles.testAccountButtonText}>테스트 계정으로 바로 로그인</Text>
               </Pressable>
-              <Text style={styles.testAccountHint}>테스트 계정: {DEV_LOCAL_TEST_ACCOUNT_EMAIL}</Text>
+              <Text style={styles.testAccountHint}>
+                테스트 계정: {DEV_LOCAL_TEST_ACCOUNT_EMAIL}
+              </Text>
             </>
           ) : null}
 

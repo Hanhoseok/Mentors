@@ -57,8 +57,8 @@ export function LoginScreen() {
       setErrorMsg(
         getAuthApiErrorMessage(
           error,
-          '로그인에 실패했습니다. 이메일과 비밀번호를 다시 확인해 주세요.'
-        )
+          '로그인에 실패했습니다. 이메일과 비밀번호를 다시 확인해 주세요.',
+        ),
       );
     } finally {
       setIsSubmitting(false);

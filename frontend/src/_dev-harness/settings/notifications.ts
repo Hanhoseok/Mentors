@@ -86,9 +86,7 @@ export async function ensureReminderPermissionsAsync(): Promise<boolean> {
   return finalStatus === 'granted';
 }
 
-export async function syncReminderNotifications(
-  preferences: ReminderPreferences,
-): Promise<void> {
+export async function syncReminderNotifications(preferences: ReminderPreferences): Promise<void> {
   const Notifications = await getNotificationsModuleAsync();
   if (!Notifications) {
     return;

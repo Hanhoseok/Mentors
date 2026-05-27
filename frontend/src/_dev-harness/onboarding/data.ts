@@ -281,9 +281,7 @@ export function getExperienceLevelLabel(value: ExperienceLevel | null | undefine
 }
 
 export function getInterestLabel(value: InterestTag): string {
-  return (
-    getOptionLabel(profileInterestOptions, value) || getOptionLabel(interestOptions, value)
-  );
+  return getOptionLabel(profileInterestOptions, value) || getOptionLabel(interestOptions, value);
 }
 
 export function getRiskProfileLabel(value: RiskProfile | null | undefined): string {

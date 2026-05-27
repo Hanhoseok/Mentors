@@ -35,7 +35,8 @@ function ResultCard({
       <Text style={styles.resultEyebrow}>{result.passed ? '승급 성공' : '재도전 가능'}</Text>
       <Text style={styles.resultTitle}>{getPromotionResultHeadline(result)}</Text>
       <Text style={styles.resultDescription}>
-        {result.correct_answers}/{result.total_questions}문항 정답, 최종 점수 {result.score_percent}점
+        {result.correct_answers}/{result.total_questions}문항 정답, 최종 점수 {result.score_percent}
+        점
       </Text>
       <Text style={styles.resultMessage}>{result.message}</Text>
       {result.unlocked_features.length > 0 ? (
@@ -171,8 +172,7 @@ export function PromotionTestScreen({ navigation }: PromotionTestScreenProps) {
         <View style={styles.infoCard}>
           <Text style={styles.infoTitle}>로그인 후 승급시험을 진행할 수 있어요</Text>
           <Text style={styles.infoDescription}>
-            성장 데이터와 시험 결과는 로그인한 계정에 저장되므로, 먼저 로그인 상태를 확인해
-            주세요.
+            성장 데이터와 시험 결과는 로그인한 계정에 저장되므로, 먼저 로그인 상태를 확인해 주세요.
           </Text>
         </View>
       ) : null}
