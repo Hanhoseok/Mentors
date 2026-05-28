@@ -19,6 +19,13 @@ ID 자동 부여:
   content_master_keyword_companies.id 모두 auto-increment.
 - 시드 자체는 name_ko / (industry_id, label_ko) / keyword / (master_keyword_id, company_name)
   의 UNIQUE 제약으로 dedup.
+
+선행 시퀀스 동기화:
+- 20260524가 시드 데이터를 explicit id=1로 INSERT 했지만 PostgreSQL의 SERIAL
+  시퀀스는 명시적 id INSERT 시 자동 advance 안 됨. 결과: `content_*_id_seq`가
+  여전히 1을 가리켜서 본 마이그레이션의 auto-increment INSERT가 PK 충돌로 실패.
+- upgrade() 첫 단계에서 4개 테이블 시퀀스를 setval(MAX(id))로 동기화.
+- 빈 테이블에서도 안전 (COALESCE).
 """
 
 from __future__ import annotations
@@ -75,6 +82,29 @@ _INDUSTRY_EN: dict[str, str] = {
 
 def upgrade() -> None:
     bind = op.get_bind()
+
+    # ---- 0) 시퀀스 동기화 (20260524 explicit id INSERT 영향 보정) ----------
+    # 20260524의 명시적 id=1 INSERT는 SERIAL 시퀀스를 advance 시키지 않음.
+    # setval(seq, MAX(id), is_called=true) → 다음 nextval = MAX(id)+1.
+    # 빈 테이블이면 setval(seq, 1, false) → 다음 nextval = 1.
+    # 멱등 — 이미 동기화된 시퀀스에 호출해도 무해.
+    for table, col in [
+        ("content_industries", "id"),
+        ("content_industry_keywords", "id"),
+        ("content_master_keywords", "id"),
+        ("content_master_keyword_companies", "id"),
+    ]:
+        bind.execute(
+            sa.text(
+                f"""
+                SELECT setval(
+                    pg_get_serial_sequence('{table}', '{col}'),
+                    COALESCE((SELECT MAX({col}) FROM {table}), 1),
+                    (SELECT MAX({col}) IS NOT NULL FROM {table})
+                )
+                """
+            )
+        )
 
     # ---- 1) industries -----------------------------------------------------
     industries_seen: dict[str, int] = {}  # name_ko → id
