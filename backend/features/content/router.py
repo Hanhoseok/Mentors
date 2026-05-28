@@ -3,8 +3,9 @@
 prefix: /api/content
 인증: Mentors auth — Depends(get_current_user)
 
-PR-2: /keywords CRUD
-PR-4: /news, /news/{id}, /news/search, /scraps (생성/삭제/목록)
+PR-2:  /keywords CRUD
+PR-4:  /news, /news/{id}, /news/search, /scraps (생성/삭제/목록)
+PR-Ⅱ: /admin/retry-failed (AI 처리 실패 재시도)
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from .schemas import (
     UserKeywordListResponse,
     UserKeywordResponse,
 )
-from .service import RAG_COLLECTION
+from .service import RAG_COLLECTION, content_service
 
 logger = logging.getLogger("content.router")
 router = APIRouter(prefix="/api/content", tags=["content"])
@@ -280,6 +281,35 @@ async def remove_my_keyword(
     deleted = await remove_user_keyword(db, user_id=user.id, user_keyword_id=user_keyword_id)
     if not deleted:
         raise NotFoundError("키워드를 찾을 수 없습니다")
+
+
+# ---------------------------------------------------------------------------
+# Admin — AI 처리 실패 재시도 (PR-Ⅱ)
+# ---------------------------------------------------------------------------
+# TODO: 향후 admin role 시스템 도입 시 require_admin dependency로 교체.
+#       현재는 인증된 사용자면 호출 가능 (mentors는 아직 role 분리 없음).
+
+
+@router.post("/admin/retry-failed")
+async def retry_failed_ai(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500, description="한 번에 reset할 최대 행 수"),
+) -> dict:
+    """ai_processing_status='failed' 기사를 'pending'으로 되돌림.
+
+    다음 ai_process_tick(5분 간격)이 자동 재처리. 즉시 처리는 안 함 —
+    응답은 빠르게 반환. 결과 모니터링은 별도 쿼리.
+
+    Response:
+        {"reset": N, "sample": [{"id": ..., "title": ..., "ai_error": ...}, ...]}
+    """
+    result = await content_service.reset_failed_to_pending(db, limit=limit)
+    logger.info(
+        "content.admin.retry_failed_called",
+        extra={"user_id": user.id, "reset": result["reset"], "limit": limit},
+    )
+    return result
 
 
 __all__ = ["router"]

@@ -22,7 +22,7 @@ from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -67,6 +67,10 @@ _TIER_CAP = {
 }
 _GLOBAL_CAP = max(1, int(os.getenv("MAX_KEYWORDS_PER_TICK", "40")))
 _COMPANIES_PER_KEYWORD = int(os.getenv("COMPANIES_PER_KEYWORD", "5"))
+
+# AI 처리 중 process crash / 외부 timeout 등으로 status가 'processing'에 stuck된 행
+# 을 N분 후 자동으로 'pending'으로 복구. process_pending_ai 시작 시 매번 실행.
+_AI_PROCESSING_STUCK_MINUTES = int(os.getenv("AI_PROCESSING_STUCK_MINUTES", "15"))
 
 
 class ContentService:
@@ -305,10 +309,97 @@ class ContentService:
     # 2. AI 처리 — 번역 + 요약 + 키워드 + 전략 한 호출
     # ------------------------------------------------------------------
 
+    async def reset_failed_to_pending(
+        self, session: AsyncSession, *, limit: int = 100
+    ) -> dict[str, Any]:
+        """`ai_processing_status='failed'` 기사를 'pending'으로 되돌림.
+
+        다음 ai_process_tick(5분마다)이 자동으로 재처리 시도. 즉시 처리는
+        하지 않음 — 응답 빠르게 반환 + scheduler에 위임.
+
+        Returns:
+            {"reset": N, "sample": [{"id": ..., "title": ..., "ai_error": ...}, ...]}
+        """
+        # 먼저 reset 대상 샘플 (응답에 포함, 디버깅 용)
+        sample_stmt = (
+            select(NewsArticle)
+            .where(NewsArticle.ai_processing_status == "failed")
+            .order_by(NewsArticle.processed_at.asc().nulls_first())
+            .limit(min(limit, 10))
+        )
+        sample_rows = list((await session.execute(sample_stmt)).scalars().all())
+        sample = [
+            {
+                "id": a.id,
+                "title": (a.title_original or "")[:80],
+                "ai_error": (a.ai_error or "")[:120],
+            }
+            for a in sample_rows
+        ]
+
+        # 실제 reset — 가장 오래된 failed부터 limit 개
+        reset_ids_stmt = (
+            select(NewsArticle.id)
+            .where(NewsArticle.ai_processing_status == "failed")
+            .order_by(NewsArticle.processed_at.asc().nulls_first())
+            .limit(limit)
+        )
+        ids = [row for row in (await session.execute(reset_ids_stmt)).scalars().all()]
+        if not ids:
+            return {"reset": 0, "sample": []}
+
+        from sqlalchemy import update
+
+        await session.execute(
+            update(NewsArticle)
+            .where(NewsArticle.id.in_(ids))
+            .values(ai_processing_status="pending", ai_error=None)
+        )
+        await session.commit()
+        logger.info("content.ai_retry_reset", extra={"reset": len(ids)})
+        return {"reset": len(ids), "sample": sample}
+
+    async def _recover_stuck(self, session: AsyncSession) -> int:
+        """`processing` 상태가 _AI_PROCESSING_STUCK_MINUTES 이상이면 pending으로 복구.
+
+        AI 호출 도중 process crash / 네트워크 timeout 등으로 status 업데이트 못 하고
+        종료되면 행이 영원히 'processing'에 stuck. 매 tick 시작 시 이 메서드가 좀비
+        행을 자동 회수해서 pending으로 되돌림 → 다음 처리 사이클에서 재시도.
+
+        newspipeline ai_worker.recover_stuck과 동등 (mentors-port async 버전).
+        """
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=_AI_PROCESSING_STUCK_MINUTES)
+        result = await session.execute(
+            update(NewsArticle)
+            .where(
+                NewsArticle.ai_processing_status == "processing",
+                NewsArticle.updated_at < cutoff,
+            )
+            .values(
+                ai_processing_status="pending",
+                ai_error=f"recovered_after_{_AI_PROCESSING_STUCK_MINUTES}m_stuck",
+            )
+        )
+        recovered = result.rowcount or 0
+        if recovered:
+            logger.warning(
+                "content.ai_stuck_recovered",
+                extra={"count": recovered, "threshold_min": _AI_PROCESSING_STUCK_MINUTES},
+            )
+        return recovered
+
     async def process_pending_ai(
         self, session: AsyncSession, *, limit: int = 40
     ) -> dict[str, int]:
-        """ai_processing_status='pending' 기사들을 한 번에 처리."""
+        """ai_processing_status='pending' 기사들을 한 번에 처리.
+
+        매 tick 시작 시 _recover_stuck로 좀비 행(processing > 15분)을 pending으로
+        자동 복구 → 다음 사이클에서 재처리 보장.
+        """
+        # 1) Stuck recovery (자동, 매 tick) — newspipeline 동등 패턴
+        recovered = await self._recover_stuck(session)
+
+        # 2) Pending 처리
         stmt = (
             select(NewsArticle)
             .where(NewsArticle.ai_processing_status == "pending")
@@ -340,7 +431,12 @@ class ContentService:
                 failed += 1
 
         await session.commit()
-        return {"processed": len(rows), "completed": completed, "failed": failed}
+        return {
+            "recovered": recovered,
+            "processed": len(rows),
+            "completed": completed,
+            "failed": failed,
+        }
 
     async def _ai_for_article(self, article: NewsArticle) -> AIProcessingResult:
         """단일 LLM 호출로 번역·요약·키워드·전략 매핑 + sentiment 추출.
