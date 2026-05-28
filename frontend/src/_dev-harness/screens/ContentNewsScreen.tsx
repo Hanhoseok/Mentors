@@ -23,7 +23,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
-import { listNews, searchNews } from '@/features/content/api';
+import { listNews, searchNews } from '@/features/explore/content/api';
 import {
   formatPublishedAt,
   pickDisplayTitle,
@@ -31,8 +31,8 @@ import {
   RELIABILITY_LABEL,
   SENTIMENT_LABEL,
   STRATEGY_LABEL,
-} from '@/features/content/logic';
-import type { NewsArticleResponse, NewsSortBy, SearchHit } from '@/features/content/types';
+} from '@/features/explore/content/logic';
+import type { NewsArticleResponse, NewsSortBy, SearchHit } from '@/features/explore/content/types';
 import { useUserStore } from '@/store/userStore';
 
 const SORT_OPTIONS: { value: NewsSortBy; label: string }[] = [
