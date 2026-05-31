@@ -19,10 +19,10 @@ import logging
 import os
 from collections import defaultdict
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, desc, select, update
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -118,10 +118,10 @@ class ContentService:
 
             company: MasterKeywordCompany | None = target.get("company")
             if company is not None:
-                company.last_fetched_at = datetime.now(timezone.utc)
+                company.last_fetched_at = datetime.now(UTC)
 
         # tick 후 master 스케줄 스탬프 — 한 master가 여러 회사를 fanout 했어도 한 번만
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for master in masters_used.values():
             master.last_run_at = now
             master.next_run_at = now + timedelta(minutes=master.collection_interval_minutes or 60)
@@ -156,7 +156,7 @@ class ContentService:
         - priority asc, next_run_at asc nullsfirst
         - 각 tier 캡 적용 후 master당 top-N companies (last_fetched_at asc)
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = (
             select(MasterKeyword)
             .options(selectinload(MasterKeyword.companies))
@@ -192,30 +192,34 @@ class ContentService:
             # 회사가 있으면 last_fetched_at asc로 회전, NULL(미수집) 우선
             if companies:
                 companies.sort(
-                    key=lambda c: (c.last_fetched_at or datetime.min.replace(tzinfo=timezone.utc),
-                                   c.priority or 999)
+                    key=lambda c: (
+                        c.last_fetched_at or datetime.min.replace(tzinfo=UTC),
+                        c.priority or 999,
+                    )
                 )
                 for company in companies[:_COMPANIES_PER_KEYWORD]:
-                    targets.append({
-                        "master": mkw,
-                        "query": company.company_name,
-                        "max_articles": mkw.max_articles_per_run or 3,
-                        "company": company,
-                    })
+                    targets.append(
+                        {
+                            "master": mkw,
+                            "query": company.company_name,
+                            "max_articles": mkw.max_articles_per_run or 3,
+                            "company": company,
+                        }
+                    )
             else:
                 # 회사 매핑 없는 매크로 키워드(탄소배출권 등): 키워드 텍스트로 검색
-                targets.append({
-                    "master": mkw,
-                    "query": mkw.keyword,
-                    "max_articles": mkw.max_articles_per_run or 3,
-                    "company": None,
-                })
+                targets.append(
+                    {
+                        "master": mkw,
+                        "query": mkw.keyword,
+                        "max_articles": mkw.max_articles_per_run or 3,
+                        "company": None,
+                    }
+                )
 
         return targets
 
-    async def _fetch_query(
-        self, query: str, *, max_per_collector: int
-    ) -> list[ArticleRaw]:
+    async def _fetch_query(self, query: str, *, max_per_collector: int) -> list[ArticleRaw]:
         """단일 쿼리(회사명 또는 키워드 텍스트)로 모든 collector fan-out."""
         out: list[ArticleRaw] = []
         for collector in self._collectors:
@@ -230,19 +234,30 @@ class ContentService:
         *,
         master_keyword: MasterKeyword,
     ) -> tuple[int, int]:
-        """dedup → 본문 재추출 → 신뢰도 → DB row 생성. (saved_count, dup_count).
+        """dedup → 본문 재추출 → 2차 dedup → 신뢰도 → DB row 생성. (saved_count, dup_count).
 
         RSS 본문은 메타데이터 스니펫이라 신뢰도/요약 품질이 낮음. 따라서:
-          1. URL canonical로 dedup
-          2. ContentExtractor로 풀 본문 + og:image 재추출 (실패 시 raw 그대로)
-          3. 풀 본문으로 reliability_score 재계산
-          4. NewsArticle INSERT
+          1. raw.url canonical로 1차 dedup (fetch 회피 — 같은 raw URL은 즉시 skip)
+          2. ContentExtractor로 풀 본문 + og:image + resolved_url 재추출
+          3. resolved_url이 raw.url과 다르면 publisher canonical로 2차 dedup —
+             같은 publisher 기사를 가리키는 서로 다른 Google News URL의 중복 row 방지
+          4. 풀 본문으로 reliability_score 재계산
+          5. NewsArticle INSERT (canonical_url = publisher canonical 우선, 없으면 raw canonical)
+
+        2차 dedup 효과:
+          - Google News는 같은 publisher 기사를 여러 redirector URL로 노출하기 때문에
+            1차 dedup만으로는 중복이 새어 들어옴. 2차 dedup이 fetch 후 resolved_url로
+            재확인해서 동일 publisher article은 한 row만 유지.
+          - canonical_url을 publisher 값으로 저장 → 다음 tick에서 또 다른 Google News URL이
+            들어오면 1차 dedup에서 한 번에 매칭 (fetch 횟수 감소).
         """
         saved = 0
         dups = 0
 
         for raw in raws:
             canonical = pu.canonicalize_url(raw.url)
+
+            # ---- 1차 dedup: raw.url canonical ----
             existing = await session.scalar(
                 select(NewsArticle).where(NewsArticle.canonical_url == canonical)
             )
@@ -252,15 +267,27 @@ class ContentService:
                 await self._tag_article(session, existing.id, master_keyword.id)
                 continue
 
-            # 풀 본문 + 대표 이미지 재추출 (실패 시 raw fallback)
-            # NOTE: extract()는 (body, image, resolved_url) 3-tuple을 반환함. 현재 dedup이
-            # raw.url 기준 canonical로 이미 끝난 시점이라 resolved_url(Google News interstitial
-            # 해소 후 publisher URL)을 활용하려면 dedup 흐름 재구성이 필요. 그건 별도 PR에서.
-            extracted_body, extracted_image, _resolved_url = await content_extractor.extract(
-                raw.url
-            )
+            # ---- 풀 본문 + 대표 이미지 + resolved_url 재추출 (실패 시 raw fallback) ----
+            extracted_body, extracted_image, resolved_url = await content_extractor.extract(raw.url)
             content = extracted_body or raw.content
             image_url = extracted_image or raw.image_url
+
+            # ---- 2차 dedup: Google News URL → publisher URL canonical ----
+            # resolved_url이 raw.url과 다르면 publisher canonical 재계산해서 한 번 더 체크.
+            # 같은 publisher 기사를 가리키는 다른 Google News URL이 이미 저장됐다면 skip.
+            if resolved_url and resolved_url != raw.url:
+                publisher_canonical = pu.canonicalize_url(resolved_url)
+                if publisher_canonical != canonical:
+                    existing_by_resolved = await session.scalar(
+                        select(NewsArticle).where(NewsArticle.canonical_url == publisher_canonical)
+                    )
+                    if existing_by_resolved is not None:
+                        dups += 1
+                        await self._tag_article(session, existing_by_resolved.id, master_keyword.id)
+                        continue
+                    # 신규 row의 canonical_url을 publisher 값으로 저장
+                    # → 다음 tick에서 또 다른 Google News URL이 와도 1차 dedup에서 매칭
+                    canonical = publisher_canonical
 
             score, level, reason = pu.reliability_score(
                 source_name=raw.source_name,
@@ -298,7 +325,9 @@ class ContentService:
 
         return saved, dups
 
-    async def _tag_article(self, session: AsyncSession, article_id: int, master_keyword_id: int) -> None:
+    async def _tag_article(
+        self, session: AsyncSession, article_id: int, master_keyword_id: int
+    ) -> None:
         existing = await session.scalar(
             select(ArticleKeyword).where(
                 and_(
@@ -373,7 +402,7 @@ class ContentService:
 
         newspipeline ai_worker.recover_stuck과 동등 (mentors-port async 버전).
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=_AI_PROCESSING_STUCK_MINUTES)
+        cutoff = datetime.now(UTC) - timedelta(minutes=_AI_PROCESSING_STUCK_MINUTES)
         result = await session.execute(
             update(NewsArticle)
             .where(
@@ -385,7 +414,8 @@ class ContentService:
                 ai_error=f"recovered_after_{_AI_PROCESSING_STUCK_MINUTES}m_stuck",
             )
         )
-        recovered = result.rowcount or 0
+        # SQLAlchemy Result[Any]에 rowcount 노출되지만 mypy strict가 못 봄 — getattr로 우회.
+        recovered = int(getattr(result, "rowcount", 0) or 0)
         if recovered:
             logger.warning(
                 "content.ai_stuck_recovered",
@@ -393,9 +423,7 @@ class ContentService:
             )
         return recovered
 
-    async def process_pending_ai(
-        self, session: AsyncSession, *, limit: int = 40
-    ) -> dict[str, int]:
+    async def process_pending_ai(self, session: AsyncSession, *, limit: int = 40) -> dict[str, int]:
         """ai_processing_status='pending' 기사들을 한 번에 처리.
 
         매 tick 시작 시 _recover_stuck로 좀비 행(processing > 15분)을 pending으로
@@ -424,7 +452,7 @@ class ContentService:
                 article.ai_processing_status = res.status
                 if res.error:
                     article.ai_error = res.error
-                article.processed_at = datetime.now(timezone.utc)
+                article.processed_at = datetime.now(UTC)
                 if res.status == "completed":
                     completed += 1
                 else:
@@ -506,9 +534,13 @@ class ContentService:
         if start == -1 or end == -1 or end <= start:
             return None
         try:
-            return json.loads(text[start : end + 1])
+            parsed = json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             return None
+        # json.loads는 Any 반환 — dict 확정 narrowing
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
     @staticmethod
     def _safe_enum(value: Any, allowed: set[str]) -> Any:

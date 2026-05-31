@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 import urllib.parse
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from core.contracts import MentorStrategy
 
@@ -126,10 +126,10 @@ def reliability_score(
     reasons.append(f"content={content_score}")
 
     # 3. 최신성 (0~10): 발행 시각 기준 24h→10, 72h→5, 그 이후 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     recency_score = 0
     if published_at is not None:
-        pub = published_at if published_at.tzinfo else published_at.replace(tzinfo=timezone.utc)
+        pub = published_at if published_at.tzinfo else published_at.replace(tzinfo=UTC)
         age = now - pub
         if age <= timedelta(hours=24):
             recency_score = 10
@@ -157,7 +157,8 @@ def reliability_score(
             penalty -= 10
     reasons.append(f"penalty={penalty}")
 
-    score = max(0, min(100, source_score + content_score + recency_score + evidence_score + penalty))
+    raw_score = source_score + content_score + recency_score + evidence_score + penalty
+    score = max(0, min(100, raw_score))
     level = _level_for(score)
     return score, level, " ".join(reasons)
 

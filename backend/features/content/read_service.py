@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import desc, select
 
@@ -37,7 +37,7 @@ class ContentReadServiceImpl:
         각 단계에서 중복 제거하며 top_k가 채워질 때까지 누적.
         """
         strategy = await self._resolve_user_strategy(user_id)
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=_LOOKBACK_HOURS_TODAY)
+        cutoff = datetime.now(UTC) - timedelta(hours=_LOOKBACK_HOURS_TODAY)
 
         async with SessionLocal() as session:
             base_stmt = (
@@ -56,7 +56,10 @@ class ContentReadServiceImpl:
             user_kw_stmt = (
                 select(NewsArticle)
                 .join(ArticleKeyword, ArticleKeyword.article_id == NewsArticle.id)
-                .join(UserKeyword, UserKeyword.master_keyword_id == ArticleKeyword.master_keyword_id)
+                .join(
+                    UserKeyword,
+                    UserKeyword.master_keyword_id == ArticleKeyword.master_keyword_id,
+                )
                 .where(
                     UserKeyword.user_id == int(user_id),
                     NewsArticle.is_visible.is_(True),

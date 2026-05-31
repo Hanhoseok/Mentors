@@ -44,7 +44,10 @@ async def get_or_create_master_keyword(
     `keyword`는 unique. 동시 호출 충돌 시 IntegrityError를 잡고 재조회.
     """
     normalized = keyword.strip()
-    existing = await db.scalar(select(MasterKeyword).where(MasterKeyword.keyword == normalized))
+    # db.scalar()는 Any를 반환해서 mypy strict가 narrowing 못 함 — 명시적 annotation.
+    existing: MasterKeyword | None = await db.scalar(
+        select(MasterKeyword).where(MasterKeyword.keyword == normalized)
+    )
     if existing is not None:
         return existing
 

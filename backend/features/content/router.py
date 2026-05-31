@@ -13,6 +13,7 @@ from __future__ import annotations
 import json as _json
 import logging
 import re as _re
+from typing import Any
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import desc, func, select
@@ -154,29 +155,33 @@ _VALID_RELEVANCES = frozenset(["high", "medium", "low"])
 _VALID_STRATEGIES = frozenset(["value", "growth", "dividend", "momentum"])
 
 
-def _parse_llm_json(raw: str) -> dict:
+def _parse_llm_json(raw: str) -> dict[str, Any]:
     """LLM 응답에서 JSON 파싱. 코드블록 래퍼·여분 텍스트 처리."""
     cleaned = _re.sub(r"```(?:json)?\s*([\s\S]*?)```", r"\1", raw.strip()).strip()
     m = _re.search(r"\{[\s\S]*\}", cleaned)
     if m:
         cleaned = m.group(0)
-    return _json.loads(cleaned)
+    parsed = _json.loads(cleaned)
+    if not isinstance(parsed, dict):
+        raise ValueError("LLM JSON 응답이 dict 아님")
+    return parsed
 
 
 def _article_raw_to_rss_item(a: object) -> RssNewsItem:
-    """ArticleRaw → RssNewsItem 변환 헬퍼."""
+    """ArticleRaw → RssNewsItem 변환 헬퍼.
+
+    a는 collectors의 ArticleRaw Pydantic 모델이지만 duck-typing으로 처리
+    (mypy에게는 object). getattr default 패턴 유지.
+    """
     title = getattr(a, "title", "")
     summary = getattr(a, "content", None)
+    pub = getattr(a, "published_at", None)
     combined_text = f"{title} {summary or ''}".strip()
     return RssNewsItem(
         title=title,
         url=getattr(a, "url", ""),
         source_name=getattr(a, "source_name", None),
-        published_at=(
-            getattr(a, "published_at").isoformat()
-            if getattr(a, "published_at", None) is not None
-            else None
-        ),
+        published_at=pub.isoformat() if pub is not None else None,
         summary=summary,
         keywords=_extract_keywords_simple(combined_text, max_kw=5),
     )
@@ -210,7 +215,8 @@ async def rss_search_news(
 
 
 _SUMMARIZE_PROMPT = """\
-다음 뉴스 기사를 분석하여 JSON 형식으로만 응답해주세요. 코드블록이나 부연 설명 없이 JSON 객체만 출력하세요.
+다음 뉴스 기사를 분석하여 JSON 형식으로만 응답해주세요.
+코드블록이나 부연 설명 없이 JSON 객체만 출력하세요.
 
 {{
   "summary": "투자자 관점 3~5문장 한국어 요약 (마크다운·불릿 없이 자연스러운 문단)",
@@ -438,7 +444,7 @@ async def add_scrap(
 
     # core.contracts.ArticleId는 NewType[int] — 그냥 int 전달
     await event_bus.publish(
-        ScrapAddedEvent(user_id=user.id, article_id=scrap.article_id)  # type: ignore[arg-type]
+        ScrapAddedEvent(user_id=user.id, article_id=scrap.article_id)
     )
     logger.info("content.scrap_added", extra={"user_id": user.id, "article_id": scrap.article_id})
 
@@ -543,7 +549,7 @@ async def retry_failed_ai(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500, description="한 번에 reset할 최대 행 수"),
-) -> dict:
+) -> dict[str, Any]:
     """ai_processing_status='failed' 기사를 'pending'으로 되돌림.
 
     다음 ai_process_tick(5분 간격)이 자동 재처리. 즉시 처리는 안 함 —

@@ -9,7 +9,7 @@ settings.finnhub_api_key가 없으면 비활성.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -40,7 +40,7 @@ class FinnhubCollector(BaseCollector):
         if not (keyword.isupper() and 1 < len(keyword) <= 5):
             return []
 
-        to = datetime.now(timezone.utc).date()
+        to = datetime.now(UTC).date()
         frm = to - timedelta(days=_LOOKBACK_DAYS)
         params = {
             "symbol": keyword,
@@ -69,7 +69,7 @@ class FinnhubCollector(BaseCollector):
             published_at: datetime | None = None
             ts = item.get("datetime")
             if isinstance(ts, (int, float)):
-                published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+                published_at = datetime.fromtimestamp(int(ts), tz=UTC)
             out.append(
                 ArticleRaw(
                     title=headline,

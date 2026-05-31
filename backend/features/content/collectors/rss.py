@@ -62,7 +62,8 @@ class GoogleNewsRSSCollector(BaseCollector):
             resp.raise_for_status()
         except httpx.HTTPError as e:
             logger.warning(
-                "content.rss_fetch_failed", extra={"keyword": keyword, "locale": ceid, "err": str(e)}
+                "content.rss_fetch_failed",
+                extra={"keyword": keyword, "locale": ceid, "err": str(e)},
             )
             return []
 

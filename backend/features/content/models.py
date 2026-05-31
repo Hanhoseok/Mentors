@@ -43,7 +43,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.db import Base
 
-
 # ---------------------------------------------------------------------------
 # 뉴스 출처 카탈로그
 # ---------------------------------------------------------------------------
@@ -70,7 +69,7 @@ class NewsSource(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    articles: Mapped[list["NewsArticle"]] = relationship(back_populates="source")
+    articles: Mapped[list[NewsArticle]] = relationship(back_populates="source")
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +90,7 @@ class Industry(Base):
         DateTime(timezone=True), server_default=func.now()
     )
 
-    keywords: Mapped[list["IndustryKeyword"]] = relationship(
+    keywords: Mapped[list[IndustryKeyword]] = relationship(
         back_populates="industry", cascade="all, delete-orphan"
     )
 
@@ -117,7 +116,7 @@ class IndustryKeyword(Base):
     )
 
     industry: Mapped[Industry] = relationship(back_populates="keywords")
-    master_keywords: Mapped[list["MasterKeyword"]] = relationship(
+    master_keywords: Mapped[list[MasterKeyword]] = relationship(
         back_populates="industry_keyword"
     )
 
@@ -172,14 +171,14 @@ class MasterKeyword(Base):
     industry_keyword: Mapped[IndustryKeyword | None] = relationship(
         back_populates="master_keywords"
     )
-    companies: Mapped[list["MasterKeywordCompany"]] = relationship(
+    companies: Mapped[list[MasterKeywordCompany]] = relationship(
         back_populates="master_keyword", cascade="all, delete-orphan",
         order_by="MasterKeywordCompany.priority",
     )
-    article_matches: Mapped[list["ArticleKeyword"]] = relationship(
+    article_matches: Mapped[list[ArticleKeyword]] = relationship(
         back_populates="master_keyword", cascade="all, delete-orphan"
     )
-    user_subscriptions: Mapped[list["UserKeyword"]] = relationship(
+    user_subscriptions: Mapped[list[UserKeyword]] = relationship(
         back_populates="master_keyword", cascade="all, delete-orphan"
     )
 
@@ -285,10 +284,10 @@ class NewsArticle(Base):
     )
 
     source: Mapped[NewsSource | None] = relationship(back_populates="articles")
-    keyword_matches: Mapped[list["ArticleKeyword"]] = relationship(
+    keyword_matches: Mapped[list[ArticleKeyword]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
-    chunks: Mapped[list["KnowledgeChunk"]] = relationship(
+    chunks: Mapped[list[KnowledgeChunk]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
 

@@ -120,14 +120,14 @@ def test_retry_failed_returns_zero_when_no_failed(monkeypatch: pytest.MonkeyPatc
 
 
 def test_retry_failed_rejects_zero_limit() -> None:
-    """limit=0 은 ge=1 제약으로 422."""
+    """limit=0 은 ge=1 제약 위반 — mentors가 FastAPI 422를 400으로 매핑."""
     for client in _build_authed_client():
         r = client.post("/api/content/admin/retry-failed?limit=0")
-    assert r.status_code == 422
+    assert r.status_code == 400
 
 
 def test_retry_failed_rejects_excessive_limit() -> None:
-    """limit>500 은 le=500 제약으로 422."""
+    """limit>500 은 le=500 제약 위반 — mentors가 FastAPI 422를 400으로 매핑."""
     for client in _build_authed_client():
         r = client.post("/api/content/admin/retry-failed?limit=1000")
-    assert r.status_code == 422
+    assert r.status_code == 400

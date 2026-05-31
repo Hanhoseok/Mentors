@@ -22,23 +22,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
 
 try:
-    import trafilatura  # type: ignore
+    import trafilatura
     _HAS_TRAFILATURA = True
 except Exception:  # pragma: no cover
-    trafilatura = None  # type: ignore
+    trafilatura = None  # type: ignore[assignment]
     _HAS_TRAFILATURA = False
 
 try:
-    from bs4 import BeautifulSoup  # type: ignore
+    from bs4 import BeautifulSoup
     _HAS_BS4 = True
 except Exception:  # pragma: no cover
-    BeautifulSoup = None  # type: ignore
+    BeautifulSoup = None  # type: ignore[assignment,misc]
     _HAS_BS4 = False
 
 logger = logging.getLogger("content.extractor")
@@ -77,12 +76,46 @@ class ContentExtractor:
                 "trafilatura not installed — BS4 heuristic fallback만 사용"
             )
 
-    async def extract(self, url: str) -> tuple[Optional[str], Optional[str], Optional[str]]:
-        """URL에서 (body, image_url, resolved_url) 추출. 실패한 컴포넌트는 None.
+    async def extract(self, url: str) -> tuple[str | None, str | None, str | None]:
+        """URL에서 본문·대표 이미지·최종 URL을 best-effort 추출.
 
-        body가 MIN_ARTICLE_CHARS 미만이면 body=None 반환. image는 best-effort —
-        body 추출 실패해도 이미지만 따로 줄 수 있음.
-        resolved_url은 Google News redirect 해소 후 최종 publisher URL.
+        Args:
+            url: 추출 대상 기사 URL. Google News redirect/interstitial 포함 OK —
+                내부에서 second-hop으로 실 publisher URL을 따라감.
+
+        Returns:
+            `(body, image_url, resolved_url)` 튜플. 각 컴포넌트는 독립적으로
+            성공/실패 가능 — 한 컴포넌트가 None이라고 나머지가 None은 아님.
+
+            - **body** (`str | None`):
+                보일러플레이트 제거된 본문. `MIN_ARTICLE_CHARS`(250) 미만이거나
+                추출 실패면 None. `MAX_ARTICLE_CHARS`(40000)로 truncate.
+            - **image_url** (`str | None`):
+                og:image → twitter:image → 본문 첫 <img> 우선순위로 추출한 절대 URL.
+                Google 도메인 이미지(로고·플레이스홀더)는 None으로 필터링.
+                body 추출에 실패해도 이미지만 따로 반환할 수 있음 (best-effort).
+            - **resolved_url** (`str | None`):
+                HTTP redirect + Google News interstitial second-hop을 모두 따라간
+                **최종 publisher URL**. 의미:
+
+                  * `url`이 일반 publisher 링크면 보통 `url`과 동일 (308/301 등 일반
+                    redirect만 적용된 정규화 형태).
+                  * `url`이 Google News interstitial이면 실 publisher 도메인의 URL
+                    (e.g. `https://reuters.com/...`).
+                  * HTTP 단계에서 fetch 자체가 실패하면 None.
+
+                **호출자 활용** (`ContentService._persist_articles`):
+                `resolved_url`이 입력 `url`과 다르고 `canonicalize_url(resolved_url)`이
+                입력 canonical과 다르면, publisher canonical로 2차 dedup 쿼리를 수행해
+                같은 publisher 기사를 가리키는 다른 redirect URL이 이미 저장돼
+                있는지 확인. 신규 저장이면 `canonical_url`을 publisher 값으로 기록.
+
+        Notes:
+            - 모든 실패 경로는 silent (예외 전파 없이 None 컴포넌트 반환).
+              `core.exceptions`로 raise하지 않음 — 호출자는 raw fallback 사용.
+            - 빈/whitespace `url`은 즉시 `(None, None, None)` 반환.
+            - HTTP content-type이 html/xml이 아니면 본문은 None이지만
+              `resolved_url`은 redirect 추적 결과를 그대로 반환.
         """
         if not url:
             return (None, None, None)
@@ -137,7 +170,7 @@ class ContentExtractor:
     # HTTP fetch
     # ------------------------------------------------------------------
 
-    async def _fetch(self, url: str) -> tuple[Optional[str], Optional[str]]:
+    async def _fetch(self, url: str) -> tuple[str | None, str | None]:
         """GET url. follow_redirects=True. returns (html, final_url)."""
         headers = {
             "User-Agent": USER_AGENT,
@@ -162,7 +195,7 @@ class ContentExtractor:
             return resp.text, str(resp.url)
 
     @staticmethod
-    def _find_google_news_target(html: str) -> Optional[str]:
+    def _find_google_news_target(html: str) -> str | None:
         """Google News interstitial HTML에서 실 publisher URL 추출.
 
         Google News 가끔 interstitial 페이지를 줌. data-n-au 또는 meta refresh
@@ -192,10 +225,10 @@ class ContentExtractor:
     # Body extraction (trafilatura → BS4 → regex strip)
     # ------------------------------------------------------------------
 
-    def _extract_body(self, html: str, url: str) -> Optional[str]:
+    def _extract_body(self, html: str, url: str) -> str | None:
         if _HAS_TRAFILATURA:
             try:
-                text = trafilatura.extract(  # type: ignore[union-attr]
+                text = trafilatura.extract(
                     html,
                     url=url,
                     include_comments=False,
@@ -223,11 +256,11 @@ class ContentExtractor:
         return self._strip_tags(html)
 
     @staticmethod
-    def _bs4_extract(html: str) -> Optional[str]:
+    def _bs4_extract(html: str) -> str | None:
         """heuristic: <article> 우선 → 가장 많은 <p>를 가진 <div>/<main>."""
         if not _HAS_BS4:
             return None
-        soup = BeautifulSoup(html, "lxml")  # type: ignore[misc]
+        soup = BeautifulSoup(html, "lxml")
 
         for tag in soup(
             ["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]
@@ -257,7 +290,7 @@ class ContentExtractor:
         return text or None
 
     @staticmethod
-    def _strip_tags(html: str) -> Optional[str]:
+    def _strip_tags(html: str) -> str | None:
         text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
@@ -267,7 +300,7 @@ class ContentExtractor:
     # Image extraction (og:image → twitter:image → first <img>)
     # ------------------------------------------------------------------
 
-    def _extract_image(self, html: str, base_url: str) -> Optional[str]:
+    def _extract_image(self, html: str, base_url: str) -> str | None:
         if not html:
             return None
 
@@ -286,16 +319,18 @@ class ContentExtractor:
 
         if _HAS_BS4:
             try:
-                soup = BeautifulSoup(html, "lxml")  # type: ignore[misc]
+                soup = BeautifulSoup(html, "lxml")
                 root = soup.find("article") or soup.body or soup
                 for img in root.find_all("img"):
-                    src = (
+                    raw_src = (
                         img.get("src")
                         or img.get("data-src")
                         or img.get("data-lazy-src")
                     )
-                    if not src:
+                    if not raw_src:
                         continue
+                    # bs4가 src를 str | list[str] | None로 반환할 수 있음 — str로 정규화
+                    src = raw_src if isinstance(raw_src, str) else str(raw_src)
                     w = self._safe_int(img.get("width"))
                     h = self._safe_int(img.get("height"))
                     if w and h and (w < 100 or h < 100):
@@ -311,7 +346,7 @@ class ContentExtractor:
         return None
 
     @staticmethod
-    def _safe_int(v: object) -> Optional[int]:
+    def _safe_int(v: object) -> int | None:
         if v is None:
             return None
         try:
@@ -334,7 +369,7 @@ class ContentExtractor:
             return False
 
     @staticmethod
-    def _absolutize_image(src: str, base_url: str) -> Optional[str]:
+    def _absolutize_image(src: str, base_url: str) -> str | None:
         if not src:
             return None
         src = src.strip()

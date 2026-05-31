@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from core.contracts import MentorStrategy
 
-
 # ---------------------------------------------------------------------------
 # 수집 원본 (내부 전용 — 외부 노출 X)
 # ---------------------------------------------------------------------------
@@ -122,7 +121,7 @@ class NewsArticleResponse(BaseModel):
             return [p.strip() for p in str(raw).split(",") if p.strip()][:5]
 
     @model_validator(mode="after")
-    def _populate_display(self) -> "NewsArticleResponse":
+    def _populate_display(self) -> NewsArticleResponse:
         self.title_original = _decode_entities(self.title_original) or self.title_original
         self.title_translated = _decode_entities(self.title_translated)
         self.summary_ko = _decode_entities(self.summary_ko)
