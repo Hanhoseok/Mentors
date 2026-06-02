@@ -12,8 +12,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { colors } from '@/constants/colors';
-import { summarizeNewsUrl } from '@/features/explore/content/api';
-import type { UrlSummarizeResponse } from '@/features/explore/content/types';
+import { getNewsDetail } from '@/features/explore/content/api';
+import type { NewsArticleResponse } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
 
 type RouteProps = RouteProp<AppStackParamList, 'RssArticleSummary'>;
@@ -49,13 +49,41 @@ const STRATEGY_MAP: Record<string, string> = {
   momentum: '모멘텀',
 };
 
+/** 본문 텍스트를 카드뉴스용 요약(3~5문장)으로 압축. */
+function buildBodyExcerpt(text: string | null | undefined, maxChars = 480): string | null {
+  if (!text) return null;
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (!cleaned) return null;
+  if (cleaned.length <= maxChars) return cleaned;
+  // 마지막 문장부호 부근에서 자르기
+  const slice = cleaned.slice(0, maxChars);
+  const lastStop = Math.max(
+    slice.lastIndexOf('.'),
+    slice.lastIndexOf('!'),
+    slice.lastIndexOf('?'),
+    slice.lastIndexOf('다.'),
+    slice.lastIndexOf('요.'),
+  );
+  if (lastStop > maxChars * 0.6) return slice.slice(0, lastStop + 1).trim();
+  return slice.trim() + '…';
+}
+
 export function RssArticleSummaryScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteProps>();
-  const { title, url, source_name, published_at } = route.params;
+  const {
+    title,
+    url,
+    source_name,
+    published_at,
+    article_id,
+    image_url: initialImage,
+    summary: initialSummary,
+    content: initialContent,
+  } = route.params;
 
-  const [result, setResult] = useState<UrlSummarizeResponse | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [detail, setDetail] = useState<NewsArticleResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(article_id !== undefined);
   const [error, setError] = useState(false);
   const [imageError, setImageError] = useState(false);
 
@@ -66,19 +94,17 @@ export function RssArticleSummaryScreen() {
   }, []);
 
   useEffect(() => {
+    if (article_id === undefined) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(false);
-    summarizeNewsUrl({ url, title })
-      .then((data) => {
-        if (mountedRef.current) setResult(data);
-      })
-      .catch(() => {
-        if (mountedRef.current) setError(true);
-      })
-      .finally(() => {
-        if (mountedRef.current) setIsLoading(false);
-      });
-  }, [url, title]);
+    getNewsDetail(article_id)
+      .then((data) => { if (mountedRef.current) setDetail(data); })
+      .catch(() => { if (mountedRef.current) setError(true); })
+      .finally(() => { if (mountedRef.current) setIsLoading(false); });
+  }, [article_id]);
 
   async function openOriginal() {
     try {
@@ -88,12 +114,26 @@ export function RssArticleSummaryScreen() {
     } catch { /* ignore */ }
   }
 
-  const displayTitle = result?.title || title;
-  const imageUrl = imageError ? null : (result?.image_url ?? null);
+  // 표시 데이터 — detail 우선, 없으면 라우트 파라미터 fallback
+  const displayTitle =
+    detail?.display_title ?? detail?.title_original ?? title;
+  const aiSummary = detail?.display_summary ?? detail?.summary_ko ?? initialSummary ?? null;
+  const bodySource =
+    detail?.content_translated ?? detail?.content ?? initialContent ?? null;
+  const bodyExcerpt = buildBodyExcerpt(bodySource);
+  const imageUrl = imageError
+    ? null
+    : (detail?.image_url ?? initialImage ?? null);
   const timeLabel = formatTime(published_at);
+  const sentiment = detail?.ai_sentiment ?? null;
+  const relevance = detail?.ai_investment_relevance ?? null;
+  const strategies = detail?.strategies ?? [];
+  const keywords = detail?.keywords ?? [];
+  const reliabilityScore = detail?.reliability_score ?? null;
 
-  const sentimentInfo = result?.sentiment ? SENTIMENT_MAP[result.sentiment] : null;
-  const relevanceInfo = result?.investment_relevance ? RELEVANCE_MAP[result.investment_relevance] : null;
+  const sentimentInfo = sentiment ? SENTIMENT_MAP[sentiment] : null;
+  const relevanceInfo = relevance ? RELEVANCE_MAP[relevance] : null;
+  const showAnalysis = !!detail && !isLoading;
 
   return (
     <SafeAreaView style={styles.screen} edges={['bottom']}>
@@ -156,23 +196,22 @@ export function RssArticleSummaryScreen() {
         <Text style={styles.articleTitle}>{displayTitle}</Text>
 
         {/* ── AI 분석 배지 행 ── */}
-        {!isLoading && result ? (
+        {showAnalysis ? (
           <View style={styles.badgeRow}>
-            {/* 신뢰도 점수 */}
-            {result.reliability_score != null ? (
+            {reliabilityScore != null ? (
               <View style={styles.reliabilityBadge}>
                 <Text style={styles.reliabilityLabel}>신뢰도</Text>
-                <Text style={styles.reliabilityValue}>{result.reliability_score}</Text>
+                <Text style={styles.reliabilityValue}>{reliabilityScore}</Text>
                 <View style={styles.reliabilityBarBg}>
                   <View
                     style={[
                       styles.reliabilityBarFill,
                       {
-                        width: `${result.reliability_score}%` as `${number}%`,
+                        width: `${reliabilityScore}%` as `${number}%`,
                         backgroundColor:
-                          result.reliability_score >= 70
+                          reliabilityScore >= 70
                             ? colors.primary
-                            : result.reliability_score >= 40
+                            : reliabilityScore >= 40
                             ? '#E6A817'
                             : '#C0392B',
                       },
@@ -182,7 +221,6 @@ export function RssArticleSummaryScreen() {
               </View>
             ) : null}
 
-            {/* 감성 분석 */}
             {sentimentInfo ? (
               <View style={[styles.chip, { backgroundColor: sentimentInfo.bg }]}>
                 <Text style={[styles.chipText, { color: sentimentInfo.text }]}>
@@ -191,7 +229,6 @@ export function RssArticleSummaryScreen() {
               </View>
             ) : null}
 
-            {/* 투자 관련도 */}
             {relevanceInfo ? (
               <View style={[styles.chip, { backgroundColor: relevanceInfo.bg }]}>
                 <Text style={[styles.chipText, { color: relevanceInfo.text }]}>
@@ -203,11 +240,11 @@ export function RssArticleSummaryScreen() {
         ) : null}
 
         {/* 투자 전략 */}
-        {!isLoading && result?.strategies && result.strategies.length > 0 ? (
+        {showAnalysis && strategies.length > 0 ? (
           <View style={styles.strategyRow}>
             <Text style={styles.sectionLabel}>투자 전략</Text>
             <View style={styles.chipRow}>
-              {result.strategies.map((s) => (
+              {strategies.map((s) => (
                 <View key={s} style={styles.strategyChip}>
                   <Text style={styles.strategyChipText}>
                     {STRATEGY_MAP[s] ?? s}
@@ -219,11 +256,11 @@ export function RssArticleSummaryScreen() {
         ) : null}
 
         {/* 키워드 */}
-        {!isLoading && result?.keywords && result.keywords.length > 0 ? (
+        {showAnalysis && keywords.length > 0 ? (
           <View style={styles.keywordRow}>
             <Text style={styles.sectionLabel}>키워드</Text>
             <View style={styles.chipRow}>
-              {result.keywords.map((kw, i) => (
+              {keywords.map((kw, i) => (
                 <View key={`${kw}-${i}`} style={styles.keywordChip}>
                   <Text style={styles.keywordChipText}>{kw}</Text>
                 </View>
@@ -255,14 +292,30 @@ export function RssArticleSummaryScreen() {
               <View style={[styles.skeletonLine, { width: '96%' }]} />
               <View style={[styles.skeletonLine, { width: '80%' }]} />
             </View>
+          ) : aiSummary ? (
+            <Text style={styles.summaryText}>{aiSummary}</Text>
           ) : error ? (
             <Text style={styles.errorText}>
               요약을 불러오지 못했어요. 원문을 직접 확인해 주세요.
             </Text>
-          ) : result ? (
-            <Text style={styles.summaryText}>{result.ai_summary}</Text>
-          ) : null}
+          ) : (
+            <Text style={styles.errorText}>
+              아직 AI 요약이 준비되지 않았어요.
+            </Text>
+          )}
         </View>
+
+        {/* 본문 요약(기사 발췌) — AI 요약과 별도로 노출 */}
+        {bodyExcerpt ? (
+          <View style={styles.bodyCard}>
+            <View style={styles.bodyHeader}>
+              <View style={styles.bodyBadge}>
+                <Text style={styles.bodyBadgeText}>본문 요약</Text>
+              </View>
+            </View>
+            <Text style={styles.bodyText}>{bodyExcerpt}</Text>
+          </View>
+        ) : null}
 
         {/* 원문 보기 버튼 */}
         <Pressable
@@ -311,13 +364,16 @@ const styles = StyleSheet.create({
     width: 36,
   },
   content: {
+    alignSelf: 'center',         // 웹 와이드 스크린 가운데 정렬
+    maxWidth: 800,
     paddingBottom: 40,
     paddingHorizontal: 16,
     paddingTop: 16,
+    width: '100%',
   },
   imageWrapper: {
+    aspectRatio: 16 / 9,         // 원본 비율 유지
     borderRadius: 20,
-    height: 200,
     marginBottom: 12,
     overflow: 'hidden',
     width: '100%',
@@ -485,7 +541,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     gap: 12,
-    marginBottom: 20,
+    marginBottom: 16,
     padding: 18,
   },
   summaryHeader: {
@@ -534,6 +590,36 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     lineHeight: 20,
+  },
+  bodyCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 10,
+    marginBottom: 20,
+    padding: 18,
+  },
+  bodyHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+  },
+  bodyBadge: {
+    backgroundColor: '#3E654F',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  bodyBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  bodyText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '400',
+    lineHeight: 22,
   },
   originalBtn: {
     alignItems: 'center',

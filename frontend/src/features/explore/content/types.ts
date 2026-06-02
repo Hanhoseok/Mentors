@@ -105,6 +105,25 @@ export interface UserKeywordCreateRequest {
 }
 
 // ---------------------------------------------------------------------------
+// 산업 분류 + 하위 키워드 — /api/content/industries
+// ---------------------------------------------------------------------------
+
+export interface IndustryKeywordItem {
+  id: number;
+  label_ko: string;
+  keyword_en: string;
+  display_order: number;
+}
+
+export interface IndustryItem {
+  id: number;
+  name_ko: string;
+  name_en: string;
+  display_order: number;
+  keywords: IndustryKeywordItem[];
+}
+
+// ---------------------------------------------------------------------------
 // 스크랩
 // ---------------------------------------------------------------------------
 
@@ -120,38 +139,24 @@ export interface ScrapCreateRequest {
 }
 
 // ---------------------------------------------------------------------------
-// RSS 직접 피드 — /api/content/news/top, /api/content/news/rss-search
+// 실시간 토픽 뉴스 — /api/content/news/live-topics
+// 파이프라인 우회. 신뢰도 필터/DB 저장 없음. Google News RSS + OpenAI 요약.
 // ---------------------------------------------------------------------------
 
-export interface RssNewsItem {
+export interface LiveTopicNewsItem {
   title: string;
   url: string;
   source_name: string | null;
-  published_at: string | null; // ISO-8601 or null
-  summary: string | null;
-  keywords: string[];
-}
-
-// ---------------------------------------------------------------------------
-// URL 즉석 AI 요약 — /api/content/news/summarize-url
-// ---------------------------------------------------------------------------
-
-export interface UrlSummarizeRequest {
-  url: string;
-  title?: string;
-}
-
-export interface UrlSummarizeResponse {
-  title: string;
-  ai_summary: string;
+  published_at: string | null; // ISO-8601
+  language: string;
+  summary_ko: string;
   image_url: string | null;
-  original_url: string;
-  // AI 분석 필드
-  sentiment: 'positive' | 'neutral' | 'negative' | null;
-  investment_relevance: 'high' | 'medium' | 'low' | null;
-  strategies: string[];
   keywords: string[];
-  reliability_score: number | null;
+}
+
+export interface LiveTopicNewsResponse {
+  topic: string;
+  items: LiveTopicNewsItem[];
 }
 
 // ---------------------------------------------------------------------------

@@ -39,18 +39,25 @@ class VectorStore:
         top_k: int = 5,
         filters: dict[str, Any] | None = None,
     ) -> list[Document]:
+        """벡터 시맨틱 검색. 결과 Document.distance에 cosine distance 채워서 반환.
+
+        Chroma는 distance 작을수록 가까운 매칭. 호출자가 임계값으로 거를 수 있게
+        그대로 노출 — 0.0(동일) ~ 2.0(정반대).
+        """
         embedding = await llm.embed(query)
         col = self._collection(collection)
         result = col.query(
             query_embeddings=[embedding],
             n_results=top_k,
             where=filters,
+            include=["documents", "metadatas", "distances"],
         )
 
         docs: list[Document] = []
         documents = result.get("documents") or [[]]
         ids = result.get("ids") or [[]]
         metadatas = result.get("metadatas") or [[]]
+        distances = result.get("distances") or [[]]
 
         if not documents or not documents[0]:
             return docs
@@ -58,7 +65,19 @@ class VectorStore:
         for i, text in enumerate(documents[0]):
             doc_id = ids[0][i] if ids and len(ids[0]) > i else f"doc_{i}"
             metadata = metadatas[0][i] if metadatas and len(metadatas[0]) > i else {}
-            docs.append(Document(id=str(doc_id), text=str(text), metadata=metadata or {}))
+            distance = (
+                float(distances[0][i])
+                if distances and len(distances[0]) > i and distances[0][i] is not None
+                else None
+            )
+            docs.append(
+                Document(
+                    id=str(doc_id),
+                    text=str(text),
+                    metadata=metadata or {},
+                    distance=distance,
+                )
+            )
         return docs
 
     async def upsert(self, collection: str, docs: list[Document]) -> None:

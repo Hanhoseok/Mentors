@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import re
 import urllib.parse
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from core.contracts import MentorStrategy
 
@@ -126,10 +126,10 @@ def reliability_score(
     reasons.append(f"content={content_score}")
 
     # 3. 최신성 (0~10): 발행 시각 기준 24h→10, 72h→5, 그 이후 0
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     recency_score = 0
     if published_at is not None:
-        pub = published_at if published_at.tzinfo else published_at.replace(tzinfo=UTC)
+        pub = published_at if published_at.tzinfo else published_at.replace(tzinfo=timezone.utc)
         age = now - pub
         if age <= timedelta(hours=24):
             recency_score = 10
@@ -157,8 +157,7 @@ def reliability_score(
             penalty -= 10
     reasons.append(f"penalty={penalty}")
 
-    raw_score = source_score + content_score + recency_score + evidence_score + penalty
-    score = max(0, min(100, raw_score))
+    score = max(0, min(100, source_score + content_score + recency_score + evidence_score + penalty))
     level = _level_for(score)
     return score, level, " ".join(reasons)
 
@@ -229,9 +228,53 @@ def classify_strategies(title: str, content: str | None) -> list[MentorStrategy]
     return hits
 
 
+# ---------------------------------------------------------------------------
+# 이미지 URL 화이트리스트 (generic publisher/aggregator 로고 제거)
+# ---------------------------------------------------------------------------
+
+
+# Aggregator(Google News 등)가 자체적으로 만든 generic 썸네일은 publisher 진짜
+# 이미지가 아니므로 모두 거부.
+_REJECTED_IMAGE_HOSTS: tuple[str, ...] = (
+    "googleusercontent.com",
+    "news.google.com",
+    "gstatic.com",
+    "ggpht.com",
+)
+
+# 파일명·경로에 들어가면 generic 로고/플레이스홀더로 간주.
+# URL 전체를 lower-case로 변환해 매칭.
+_REJECTED_IMAGE_PATTERNS: tuple[str, ...] = (
+    "yahoo_finance",          # s.yimg.com/.../yahoo_finance_en-US_h_p_finance_2.png
+    "default-image",
+    "placeholder",
+    "site-logo",
+    "/icons/",
+    "/sprite",
+    "_sprite.",
+    "share-image",            # 공유 카드용 generic
+    "default_share",
+    "blank.png",
+    "blank.jpg",
+)
+
+
+def is_acceptable_image_url(url: str | None) -> bool:
+    """publisher 진짜 기사 이미지로 보이는지 검사. False면 호출자가 None 처리."""
+    if not url:
+        return False
+    lower = url.lower()
+    if any(host in lower for host in _REJECTED_IMAGE_HOSTS):
+        return False
+    if any(pat in lower for pat in _REJECTED_IMAGE_PATTERNS):
+        return False
+    return True
+
+
 __all__ = [
     "canonicalize_url",
     "classify_strategies",
+    "is_acceptable_image_url",
     "is_economy",
     "looks_like_rss_metadata",
     "reliability_score",

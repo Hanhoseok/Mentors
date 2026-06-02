@@ -14,16 +14,15 @@
 
 import { apiClient } from '@/api/client';
 import type {
+  IndustryItem,
   ListNewsParams,
+  LiveTopicNewsResponse,
   NewsArticleResponse,
   NewsListResponse,
   RetryFailedResponse,
-  RssNewsItem,
   ScrapCreateRequest,
   ScrapResponse,
   SearchResponse,
-  UrlSummarizeRequest,
-  UrlSummarizeResponse,
   UserKeywordCreateRequest,
   UserKeywordListResponse,
   UserKeywordResponse,
@@ -50,6 +49,21 @@ export async function searchNews(query: string, topK = 10): Promise<SearchRespon
   return response.data;
 }
 
+/**
+ * 실시간 토픽 뉴스 (SearchScreen 탭용).
+ * Google News RSS를 즉석 수집 + OpenAI 일괄 요약. 파이프라인 신뢰도 필터 우회.
+ */
+export async function fetchLiveTopicNews(
+  topic: string,
+  limit = 6,
+): Promise<LiveTopicNewsResponse> {
+  const response = await apiClient.get<LiveTopicNewsResponse>(
+    '/api/content/news/live-topics',
+    { params: { topic, limit } },
+  );
+  return response.data;
+}
+
 // ---------------------------------------------------------------------------
 // 사용자 관심 키워드 CRUD
 // ---------------------------------------------------------------------------
@@ -71,6 +85,15 @@ export async function removeMyKeyword(userKeywordId: number): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// 산업 분류 + 하부 키워드 (관심사 설정 카드용)
+// ---------------------------------------------------------------------------
+
+export async function listIndustries(): Promise<IndustryItem[]> {
+  const response = await apiClient.get<IndustryItem[]>('/api/content/industries');
+  return response.data;
+}
+
+// ---------------------------------------------------------------------------
 // 스크랩
 // ---------------------------------------------------------------------------
 
@@ -88,40 +111,6 @@ export async function listMyScraps(limit = 50): Promise<ScrapResponse[]> {
 
 export async function removeScrap(scrapId: number): Promise<void> {
   await apiClient.delete(`/api/content/scraps/${scrapId}`);
-}
-
-// ---------------------------------------------------------------------------
-// RSS 직접 피드 (DB 파이프라인 불필요 — 실시간 Google News RSS)
-// ---------------------------------------------------------------------------
-
-/** 주요 금융 뉴스 (기본 키워드 검색) */
-export async function getTopNews(limit = 8): Promise<RssNewsItem[]> {
-  const response = await apiClient.get<RssNewsItem[]>('/api/content/news/top', {
-    params: { limit },
-  });
-  return response.data;
-}
-
-/** Google News RSS 키워드 검색 */
-export async function rssSearchNews(query: string, limit = 10): Promise<RssNewsItem[]> {
-  const response = await apiClient.get<RssNewsItem[]>('/api/content/news/rss-search', {
-    params: { q: query, limit },
-  });
-  return response.data;
-}
-
-/**
- * RSS 기사 URL을 받아 본문 추출 + LLM 한국어 요약을 생성합니다.
- * 기사 이미지(og:image 등)도 함께 반환됩니다.
- */
-export async function summarizeNewsUrl(
-  payload: UrlSummarizeRequest,
-): Promise<UrlSummarizeResponse> {
-  const response = await apiClient.post<UrlSummarizeResponse>(
-    '/api/content/news/summarize-url',
-    payload,
-  );
-  return response.data;
 }
 
 // ---------------------------------------------------------------------------

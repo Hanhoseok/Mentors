@@ -20,25 +20,36 @@ mentors 컨벤션 적용:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
+from typing import Any, Optional
 from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from .pipeline_utils import is_acceptable_image_url
+
 try:
-    import trafilatura
+    import trafilatura  # type: ignore
     _HAS_TRAFILATURA = True
 except Exception:  # pragma: no cover
-    trafilatura = None  # type: ignore[assignment]
+    trafilatura = None  # type: ignore
     _HAS_TRAFILATURA = False
 
 try:
-    from bs4 import BeautifulSoup
+    from bs4 import BeautifulSoup  # type: ignore
     _HAS_BS4 = True
 except Exception:  # pragma: no cover
-    BeautifulSoup = None  # type: ignore[assignment,misc]
+    BeautifulSoup = None  # type: ignore
     _HAS_BS4 = False
+
+try:
+    from googlenewsdecoder import gnewsdecoder  # type: ignore
+    _HAS_GNEWS_DECODER = True
+except Exception:  # pragma: no cover
+    gnewsdecoder = None  # type: ignore
+    _HAS_GNEWS_DECODER = False
 
 logger = logging.getLogger("content.extractor")
 
@@ -76,7 +87,9 @@ class ContentExtractor:
                 "trafilatura not installed — BS4 heuristic fallback만 사용"
             )
 
-    async def extract(self, url: str) -> tuple[str | None, str | None, str | None]:
+    async def extract(
+        self, url: str
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """URL에서 본문·대표 이미지·최종 URL을 best-effort 추출.
 
         Args:
@@ -92,7 +105,6 @@ class ContentExtractor:
                 추출 실패면 None. `MAX_ARTICLE_CHARS`(40000)로 truncate.
             - **image_url** (`str | None`):
                 og:image → twitter:image → 본문 첫 <img> 우선순위로 추출한 절대 URL.
-                Google 도메인 이미지(로고·플레이스홀더)는 None으로 필터링.
                 body 추출에 실패해도 이미지만 따로 반환할 수 있음 (best-effort).
             - **resolved_url** (`str | None`):
                 HTTP redirect + Google News interstitial second-hop을 모두 따라간
@@ -134,8 +146,14 @@ class ContentExtractor:
                 return (None, None, None)
 
             # Google News interstitial → 실 publisher URL로 second-hop
+            # 우선순위:
+            #   (a) googlenewsdecoder로 base64 path 직접 디코드 (정확)
+            #   (b) HTML interstitial scrape (data-n-au / meta refresh / anchor)
             if final_url and "news.google.com" in (urlparse(final_url).netloc or ""):
-                resolved = self._find_google_news_target(html)
+                # gnewsdecoder는 내부에서 동기 HTTP를 칠 수 있어 to_thread로 격리
+                resolved = await asyncio.to_thread(
+                    self._decode_google_news_url, final_url
+                ) or self._find_google_news_target(html)
                 if resolved and resolved != final_url:
                     try:
                         html2, final_url2 = await self._fetch(resolved)
@@ -150,14 +168,6 @@ class ContentExtractor:
             body = self._extract_body(html, final_url or url)
             image_url = self._extract_image(html, final_url or url)
 
-            # Google 도메인 이미지(Google 로고 등) 필터링
-            if image_url and self._is_google_image(image_url):
-                logger.debug(
-                    "content.extractor.google_image_filtered",
-                    extra={"image_url": image_url[:200]},
-                )
-                image_url = None
-
             if not body:
                 return (None, image_url, final_url)
 
@@ -170,7 +180,7 @@ class ContentExtractor:
     # HTTP fetch
     # ------------------------------------------------------------------
 
-    async def _fetch(self, url: str) -> tuple[str | None, str | None]:
+    async def _fetch(self, url: str) -> tuple[Optional[str], Optional[str]]:
         """GET url. follow_redirects=True. returns (html, final_url)."""
         headers = {
             "User-Agent": USER_AGENT,
@@ -195,7 +205,31 @@ class ContentExtractor:
             return resp.text, str(resp.url)
 
     @staticmethod
-    def _find_google_news_target(html: str) -> str | None:
+    def _decode_google_news_url(url: str) -> Optional[str]:
+        """googlenewsdecoder로 Google News base64 path → publisher URL 직접 변환.
+
+        Google News는 client-side JS로 publisher URL을 풀어주는 SPA라
+        HTML scrape으로는 URL을 못 뽑음. googlenewsdecoder는 base64 path 내부
+        protobuf 데이터를 디코딩해서 진짜 URL을 추출. 라이브러리 미설치 시 None.
+        """
+        if not _HAS_GNEWS_DECODER or not url:
+            return None
+        try:
+            result = gnewsdecoder(url, interval=1)  # type: ignore[misc]
+        except Exception as e:
+            logger.debug(
+                "content.extractor.gnews_decode_failed",
+                extra={"url": url[:200], "err": str(e)[:200]},
+            )
+            return None
+        if isinstance(result, dict) and result.get("status"):
+            decoded = result.get("decoded_url")
+            if isinstance(decoded, str) and decoded.startswith(("http://", "https://")):
+                return decoded
+        return None
+
+    @staticmethod
+    def _find_google_news_target(html: str) -> Optional[str]:
         """Google News interstitial HTML에서 실 publisher URL 추출.
 
         Google News 가끔 interstitial 페이지를 줌. data-n-au 또는 meta refresh
@@ -225,10 +259,10 @@ class ContentExtractor:
     # Body extraction (trafilatura → BS4 → regex strip)
     # ------------------------------------------------------------------
 
-    def _extract_body(self, html: str, url: str) -> str | None:
+    def _extract_body(self, html: str, url: str) -> Optional[str]:
         if _HAS_TRAFILATURA:
             try:
-                text = trafilatura.extract(
+                text = trafilatura.extract(  # type: ignore[union-attr]
                     html,
                     url=url,
                     include_comments=False,
@@ -256,11 +290,11 @@ class ContentExtractor:
         return self._strip_tags(html)
 
     @staticmethod
-    def _bs4_extract(html: str) -> str | None:
+    def _bs4_extract(html: str) -> Optional[str]:
         """heuristic: <article> 우선 → 가장 많은 <p>를 가진 <div>/<main>."""
         if not _HAS_BS4:
             return None
-        soup = BeautifulSoup(html, "lxml")
+        soup = BeautifulSoup(html, "lxml")  # type: ignore[misc]
 
         for tag in soup(
             ["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]
@@ -290,7 +324,7 @@ class ContentExtractor:
         return text or None
 
     @staticmethod
-    def _strip_tags(html: str) -> str | None:
+    def _strip_tags(html: str) -> Optional[str]:
         text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", html)
         text = re.sub(r"<[^>]+>", " ", text)
         text = re.sub(r"\s+", " ", text).strip()
@@ -300,10 +334,25 @@ class ContentExtractor:
     # Image extraction (og:image → twitter:image → first <img>)
     # ------------------------------------------------------------------
 
-    def _extract_image(self, html: str, base_url: str) -> str | None:
+    def _extract_image(self, html: str, base_url: str) -> Optional[str]:
+        """publisher 페이지에서 진짜 기사 이미지 추출.
+
+        우선순위 (정확도 높은 순):
+          1. JSON-LD schema.org NewsArticle.image — 대부분 publisher가 진짜 이미지
+          2. og:image / twitter:image / link rel=image_src
+          3. <article> 내부에서 가장 큰 acceptable <img>
+
+        각 단계 결과는 is_acceptable_image_url 필터 통과해야 채택.
+        """
         if not html:
             return None
 
+        # ── 1) JSON-LD (schema.org) ──────────────────────────────────────────
+        jsonld_img = self._extract_jsonld_image(html, base_url)
+        if jsonld_img:
+            return jsonld_img
+
+        # ── 2) Meta tags (og:image / twitter:image / link rel=image_src) ─────
         for pattern in (
             r'<meta[^>]+property=["\']og:image(?::url)?["\'][^>]+content=["\']([^"\']+)["\']',
             r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::url)?["\']',
@@ -314,30 +363,42 @@ class ContentExtractor:
             m = re.search(pattern, html, re.IGNORECASE)
             if m:
                 resolved = self._absolutize_image(m.group(1).strip(), base_url)
-                if resolved:
+                if resolved and is_acceptable_image_url(resolved):
                     return resolved
 
+        # ── 3) BS4 — <article> 내부에서 가장 큰 acceptable 이미지 ────────────
         if _HAS_BS4:
             try:
-                soup = BeautifulSoup(html, "lxml")
+                soup = BeautifulSoup(html, "lxml")  # type: ignore[misc]
                 root = soup.find("article") or soup.body or soup
+                best_url: Optional[str] = None
+                best_area = 0
                 for img in root.find_all("img"):
-                    raw_src = (
+                    src = (
                         img.get("src")
                         or img.get("data-src")
                         or img.get("data-lazy-src")
                     )
-                    if not raw_src:
+                    if not src:
                         continue
-                    # bs4가 src를 str | list[str] | None로 반환할 수 있음 — str로 정규화
-                    src = raw_src if isinstance(raw_src, str) else str(raw_src)
-                    w = self._safe_int(img.get("width"))
-                    h = self._safe_int(img.get("height"))
-                    if w and h and (w < 100 or h < 100):
+                    w = self._safe_int(img.get("width")) or 0
+                    h = self._safe_int(img.get("height")) or 0
+                    # 명시적으로 작은 이미지(로고, 아이콘)는 제외
+                    if w and h and (w < 200 or h < 100):
                         continue
                     resolved = self._absolutize_image(src, base_url)
-                    if resolved:
-                        return resolved
+                    if not resolved or not is_acceptable_image_url(resolved):
+                        continue
+                    area = (w or 1) * (h or 1)
+                    # 면적 정보 없으면 첫 매칭을 기준점으로
+                    if best_url is None or area > best_area:
+                        best_url = resolved
+                        best_area = area
+                        # 면적 정보 없는 경우(area=1)는 첫 매칭에서 break
+                        if not (w and h):
+                            break
+                if best_url:
+                    return best_url
             except Exception as e:
                 logger.debug(
                     "content.extractor.img_bs4_failed",
@@ -345,8 +406,66 @@ class ContentExtractor:
                 )
         return None
 
+    def _extract_jsonld_image(self, html: str, base_url: str) -> Optional[str]:
+        """`<script type="application/ld+json">` 안 schema.org NewsArticle.image 추출.
+
+        Publisher가 메타로 명시한 진짜 기사 사진. og:image보다 일반적으로 정확함.
+        이미지 표현은 여러 형태:
+          - "image": "https://..."
+          - "image": ["url1", "url2"]
+          - "image": {"@type": "ImageObject", "url": "..."}
+          - "image": [{"url": "..."}, ...]
+        """
+        if not html:
+            return None
+        # 스크립트 블록들을 빠르게 찾고 각각 파싱 (한 페이지에 여러 LD-JSON 흔함)
+        for m in re.finditer(
+            r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            blob = m.group(1).strip()
+            if not blob:
+                continue
+            try:
+                data = json.loads(blob)
+            except json.JSONDecodeError:
+                continue
+            for img_url in self._iter_jsonld_image_urls(data):
+                resolved = self._absolutize_image(img_url, base_url)
+                if resolved and is_acceptable_image_url(resolved):
+                    return resolved
+        return None
+
     @staticmethod
-    def _safe_int(v: object) -> int | None:
+    def _iter_jsonld_image_urls(node: Any):
+        """JSON-LD 트리에서 'image' 키를 재귀로 훑어 모든 URL 후보 yield."""
+        if isinstance(node, dict):
+            img = node.get("image")
+            if isinstance(img, str):
+                yield img
+            elif isinstance(img, dict):
+                url = img.get("url")
+                if isinstance(url, str):
+                    yield url
+            elif isinstance(img, list):
+                for it in img:
+                    if isinstance(it, str):
+                        yield it
+                    elif isinstance(it, dict):
+                        url = it.get("url")
+                        if isinstance(url, str):
+                            yield url
+            # @graph / 중첩 객체도 탐색
+            for v in node.values():
+                if isinstance(v, (dict, list)) and v is not img:
+                    yield from ContentExtractor._iter_jsonld_image_urls(v)
+        elif isinstance(node, list):
+            for it in node:
+                yield from ContentExtractor._iter_jsonld_image_urls(it)
+
+    @staticmethod
+    def _safe_int(v: object) -> Optional[int]:
         if v is None:
             return None
         try:
@@ -355,21 +474,7 @@ class ContentExtractor:
             return None
 
     @staticmethod
-    def _is_google_image(url: str) -> bool:
-        """Google 도메인 이미지(Google 로고·플레이스홀더) 여부 확인."""
-        if not url:
-            return False
-        try:
-            netloc = urlparse(url).netloc.lower()
-            return any(
-                d in netloc
-                for d in ("google.com", "gstatic.com", "googleapis.com", "googleusercontent.com")
-            )
-        except Exception:
-            return False
-
-    @staticmethod
-    def _absolutize_image(src: str, base_url: str) -> str | None:
+    def _absolutize_image(src: str, base_url: str) -> Optional[str]:
         if not src:
             return None
         src = src.strip()

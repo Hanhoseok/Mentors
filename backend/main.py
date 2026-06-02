@@ -5,6 +5,14 @@ import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+# pydantic_settings는 .env를 자기 Settings 인스턴스에만 채워주지 os.environ에는
+# 안 넣음 → service.py 같은 데서 os.getenv("CONTENT_RAG_THRESHOLD")가 None 반환
+# → 코드 디폴트로 떨어짐(=실제 .env 값 무시). 모든 import 전에 dotenv를 강제로
+# os.environ에 로드해서 두 진입점(Settings + os.getenv) 모두 같은 값을 보게 함.
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(override=False)  # 이미 OS에 설정된 값이 우선
+
 # Windows에서 psycopg async는 ProactorEventLoop과 비호환. SelectorEventLoopPolicy로 강제.
 # Linux/Mac은 영향 없음. (Python 3.16에서 set_event_loop_policy deprecation 예정 —
 # 그때는 uvicorn의 loop_factory 옵션으로 전환)
@@ -52,6 +60,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     register_market_data_jobs(scheduler)
     await start_scheduler()
     push.init()
+
+    # 주요 뉴스 4탭 prefetch — interval 첫 발사(10분 후) 전에 캐시를 채워두기.
+    # 실패는 무시(앱 부팅 막지 않음).
+    try:
+        from features.content.live_news import refresh_all_topics
+
+        asyncio.create_task(refresh_all_topics())
+    except Exception:
+        logger.exception("startup.live_news_warmup_failed")
+
     yield
     logger.info("shutdown")
     push.shutdown()

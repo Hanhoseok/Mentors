@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -22,7 +23,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -49,10 +50,15 @@ logger = logging.getLogger("content.service")
 # 이름으로 검색하면 매끄럽게 콘텐츠 동 데이터에 접근 가능.
 RAG_COLLECTION = "content_news_kb"
 
-# RAG 인덱싱 임계값 — 신뢰도가 이 점수 이상이어야 벡터 저장
-RAG_ELIGIBILITY_THRESHOLD = 60
-# 노출 임계값 — 사용자에게 보이려면 이 점수 이상
-VISIBLE_THRESHOLD = 70
+# 신뢰도 임계값 — env로 override 가능. 점수 분포가 모델/출처 풀에 따라 달라지므로
+# 코드 변경 없이 .env로 튜닝 가능하게 둠.
+#   CONTENT_VISIBLE_THRESHOLD: 사용자 노출 컷오프 (is_visible 결정)
+#   CONTENT_RAG_THRESHOLD:     AI 처리 + RAG 인덱싱 컷오프 (LLM 비용에 영향)
+#   CONTENT_SEARCH_MIN_SCORE:  /news/search 결과 최저값 (검색 풀 크기만 조정,
+#                              AI 비용에는 영향 없음)
+VISIBLE_THRESHOLD = int(os.getenv("CONTENT_VISIBLE_THRESHOLD", "50"))
+RAG_ELIGIBILITY_THRESHOLD = int(os.getenv("CONTENT_RAG_THRESHOLD", "45"))
+SEARCH_MIN_SCORE = int(os.getenv("CONTENT_SEARCH_MIN_SCORE", "40"))
 # 청크 길이 (토큰 기준 아니라 문자 기준 — 근사치)
 CHUNK_CHAR_LEN = 800
 CHUNK_OVERLAP_CHAR = 100
@@ -192,34 +198,30 @@ class ContentService:
             # 회사가 있으면 last_fetched_at asc로 회전, NULL(미수집) 우선
             if companies:
                 companies.sort(
-                    key=lambda c: (
-                        c.last_fetched_at or datetime.min.replace(tzinfo=UTC),
-                        c.priority or 999,
-                    )
+                    key=lambda c: (c.last_fetched_at or datetime.min.replace(tzinfo=UTC),
+                                   c.priority or 999)
                 )
                 for company in companies[:_COMPANIES_PER_KEYWORD]:
-                    targets.append(
-                        {
-                            "master": mkw,
-                            "query": company.company_name,
-                            "max_articles": mkw.max_articles_per_run or 3,
-                            "company": company,
-                        }
-                    )
+                    targets.append({
+                        "master": mkw,
+                        "query": company.company_name,
+                        "max_articles": mkw.max_articles_per_run or 3,
+                        "company": company,
+                    })
             else:
                 # 회사 매핑 없는 매크로 키워드(탄소배출권 등): 키워드 텍스트로 검색
-                targets.append(
-                    {
-                        "master": mkw,
-                        "query": mkw.keyword,
-                        "max_articles": mkw.max_articles_per_run or 3,
-                        "company": None,
-                    }
-                )
+                targets.append({
+                    "master": mkw,
+                    "query": mkw.keyword,
+                    "max_articles": mkw.max_articles_per_run or 3,
+                    "company": None,
+                })
 
         return targets
 
-    async def _fetch_query(self, query: str, *, max_per_collector: int) -> list[ArticleRaw]:
+    async def _fetch_query(
+        self, query: str, *, max_per_collector: int
+    ) -> list[ArticleRaw]:
         """단일 쿼리(회사명 또는 키워드 텍스트)로 모든 collector fan-out."""
         out: list[ArticleRaw] = []
         for collector in self._collectors:
@@ -325,9 +327,7 @@ class ContentService:
 
         return saved, dups
 
-    async def _tag_article(
-        self, session: AsyncSession, article_id: int, master_keyword_id: int
-    ) -> None:
+    async def _tag_article(self, session: AsyncSession, article_id: int, master_keyword_id: int) -> None:
         existing = await session.scalar(
             select(ArticleKeyword).where(
                 and_(
@@ -342,6 +342,118 @@ class ContentService:
     # ------------------------------------------------------------------
     # 2. AI 처리 — 번역 + 요약 + 키워드 + 전략 한 호출
     # ------------------------------------------------------------------
+
+    async def reapply_thresholds(self, session: AsyncSession) -> dict[str, Any]:
+        """기존 기사들에 현재 환경변수 임계값을 다시 적용.
+
+        용도:
+          - CONTENT_VISIBLE_THRESHOLD / CONTENT_RAG_THRESHOLD를 바꾼 직후
+            과거 수집분이 새 컷오프에 맞게 즉시 노출되도록 backfill.
+          - 점수 자체는 재계산하지 않음 (그건 별도 작업) — 기존 reliability_score를
+            그대로 두고 is_visible / is_rag_eligible / ai_processing_status만 갱신.
+
+        규칙:
+          - is_visible = (score >= VISIBLE_THRESHOLD)
+          - is_rag_eligible = (score >= RAG_ELIGIBILITY_THRESHOLD)
+          - ai_processing_status:
+              * 'skipped'였는데 이제 RAG 자격 생긴 행 → 'pending'으로 승격
+              * 'completed'/'failed'/'pending'/'processing'은 건드리지 않음
+                (이미 처리됐거나 진행 중인 큐를 흔들면 부작용)
+              * 새로 RAG 자격 잃은 'pending'은 그대로 둠 (AI 큐가 처리하다 알아서 정리)
+        """
+        # is_visible 동기화 — 한 쌍의 UPDATE로 끝
+        await session.execute(
+            update(NewsArticle)
+            .where(
+                NewsArticle.reliability_score >= VISIBLE_THRESHOLD,
+                NewsArticle.is_visible.is_(False),
+            )
+            .values(is_visible=True)
+        )
+        await session.execute(
+            update(NewsArticle)
+            .where(
+                NewsArticle.reliability_score < VISIBLE_THRESHOLD,
+                NewsArticle.is_visible.is_(True),
+            )
+            .values(is_visible=False)
+        )
+
+        # is_rag_eligible 동기화
+        await session.execute(
+            update(NewsArticle)
+            .where(
+                NewsArticle.reliability_score >= RAG_ELIGIBILITY_THRESHOLD,
+                NewsArticle.is_rag_eligible.is_(False),
+            )
+            .values(is_rag_eligible=True)
+        )
+        await session.execute(
+            update(NewsArticle)
+            .where(
+                NewsArticle.reliability_score < RAG_ELIGIBILITY_THRESHOLD,
+                NewsArticle.is_rag_eligible.is_(True),
+            )
+            .values(is_rag_eligible=False)
+        )
+
+        # 'skipped' → 'pending' 승격 (새 RAG 자격이 생긴 행만)
+        promote_result = await session.execute(
+            update(NewsArticle)
+            .where(
+                NewsArticle.ai_processing_status == "skipped",
+                NewsArticle.reliability_score >= RAG_ELIGIBILITY_THRESHOLD,
+            )
+            .values(ai_processing_status="pending", ai_error=None)
+        )
+        promoted = promote_result.rowcount or 0
+
+        await session.commit()
+
+        # 현재 상태 요약
+        visible_count = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(NewsArticle)
+                    .where(NewsArticle.is_visible.is_(True))
+                )
+            ).scalar_one()
+            or 0
+        )
+        rag_count = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(NewsArticle)
+                    .where(NewsArticle.is_rag_eligible.is_(True))
+                )
+            ).scalar_one()
+            or 0
+        )
+        pending_count = int(
+            (
+                await session.execute(
+                    select(func.count())
+                    .select_from(NewsArticle)
+                    .where(NewsArticle.ai_processing_status == "pending")
+                )
+            ).scalar_one()
+            or 0
+        )
+
+        stats = {
+            "thresholds": {
+                "visible": VISIBLE_THRESHOLD,
+                "rag": RAG_ELIGIBILITY_THRESHOLD,
+            },
+            "promoted_skipped_to_pending": promoted,
+            "visible_now": visible_count,
+            "rag_eligible_now": rag_count,
+            "ai_pending_now": pending_count,
+        }
+        logger.info("content.thresholds_reapplied", extra=stats)
+        return stats
 
     async def reset_failed_to_pending(
         self, session: AsyncSession, *, limit: int = 100
@@ -414,8 +526,7 @@ class ContentService:
                 ai_error=f"recovered_after_{_AI_PROCESSING_STUCK_MINUTES}m_stuck",
             )
         )
-        # SQLAlchemy Result[Any]에 rowcount 노출되지만 mypy strict가 못 봄 — getattr로 우회.
-        recovered = int(getattr(result, "rowcount", 0) or 0)
+        recovered = result.rowcount or 0
         if recovered:
             logger.warning(
                 "content.ai_stuck_recovered",
@@ -423,11 +534,21 @@ class ContentService:
             )
         return recovered
 
-    async def process_pending_ai(self, session: AsyncSession, *, limit: int = 40) -> dict[str, int]:
-        """ai_processing_status='pending' 기사들을 한 번에 처리.
+    async def process_pending_ai(
+        self,
+        session: AsyncSession,
+        *,
+        limit: int = 40,
+        parallelism: int = 8,
+    ) -> dict[str, int]:
+        """ai_processing_status='pending' 기사들을 한 번에 처리 (병렬).
 
         매 tick 시작 시 _recover_stuck로 좀비 행(processing > 15분)을 pending으로
         자동 복구 → 다음 사이클에서 재처리 보장.
+
+        ``parallelism``: 한 번에 in-flight 시킬 LLM 호출 수. OpenAI gpt-4o-mini의
+        rate limit이 넉넉하므로 8~16 권장. _ai_for_article은 read-only(DB 미접근)
+        이므로 병렬 안전. DB UPDATE는 모든 호출이 끝난 뒤 sequential로 반영.
         """
         # 1) Stuck recovery (자동, 매 tick) — newspipeline 동등 패턴
         recovered = await self._recover_stuck(session)
@@ -442,25 +563,57 @@ class ContentService:
         result = await session.execute(stmt)
         rows = list(result.scalars().all())
 
+        if not rows:
+            return {
+                "recovered": recovered,
+                "processed": 0,
+                "completed": 0,
+                "failed": 0,
+            }
+
+        # 모두 'processing'으로 즉시 마킹 — 다른 동시 호출이 같은 행을 또 잡는 것 방지.
+        # 단일 commit으로 짧게 lock 잡고 끝낸 다음 long-running LLM 호출 시작.
+        for a in rows:
+            a.ai_processing_status = "processing"
+        await session.commit()
+
+        # 3) 병렬 LLM 호출 — semaphore로 in-flight 갯수 제한
+        sem = asyncio.Semaphore(max(1, parallelism))
+
+        async def _call_one(art: NewsArticle):
+            async with sem:
+                try:
+                    return art, await self._ai_for_article(art), None
+                except Exception as exc:  # noqa: BLE001
+                    return art, None, exc
+
+        outcomes = await asyncio.gather(*[_call_one(a) for a in rows])
+
+        # 4) 결과 일괄 반영 (DB write는 sequential)
         completed = 0
         failed = 0
-        for article in rows:
-            article.ai_processing_status = "processing"
-            try:
-                res = await self._ai_for_article(article)
-                self._apply_ai_result(article, res)
-                article.ai_processing_status = res.status
-                if res.error:
-                    article.ai_error = res.error
-                article.processed_at = datetime.now(UTC)
-                if res.status == "completed":
-                    completed += 1
-                else:
-                    failed += 1
-            except Exception as e:  # noqa: BLE001
-                logger.exception("content.ai_failed", extra={"article_id": article.id})
+        now = datetime.now(UTC)
+        for article, res, err in outcomes:
+            if err is not None:
+                logger.exception(
+                    "content.ai_failed",
+                    extra={"article_id": article.id},
+                    exc_info=err,
+                )
                 article.ai_processing_status = "failed"
-                article.ai_error = str(e)[:500]
+                article.ai_error = str(err)[:500]
+                article.processed_at = now
+                failed += 1
+                continue
+            assert res is not None
+            self._apply_ai_result(article, res)
+            article.ai_processing_status = res.status
+            if res.error:
+                article.ai_error = res.error
+            article.processed_at = now
+            if res.status == "completed":
+                completed += 1
+            else:
                 failed += 1
 
         await session.commit()
@@ -469,6 +622,7 @@ class ContentService:
             "processed": len(rows),
             "completed": completed,
             "failed": failed,
+            "parallelism": parallelism,
         }
 
     async def _ai_for_article(self, article: NewsArticle) -> AIProcessingResult:
@@ -534,13 +688,9 @@ class ContentService:
         if start == -1 or end == -1 or end <= start:
             return None
         try:
-            parsed = json.loads(text[start : end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             return None
-        # json.loads는 Any 반환 — dict 확정 narrowing
-        if not isinstance(parsed, dict):
-            return None
-        return parsed
 
     @staticmethod
     def _safe_enum(value: Any, allowed: set[str]) -> Any:

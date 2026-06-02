@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,14 +11,17 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Svg, { Path, Defs, LinearGradient, Stop } from 'react-native-svg';
 import { colors } from '@/constants/colors';
 import type { AppStackParamList } from '@/navigation/types';
-import { getTopNews } from '@/features/explore/content/api';
+import { fetchLiveTopicNews, listMyKeywords } from '@/features/explore/content/api';
 import { getMarketQuotes } from '@/features/explore/market/api';
-import type { RssNewsItem } from '@/features/explore/content/types';
+import type {
+  LiveTopicNewsItem,
+  UserKeywordResponse,
+} from '@/features/explore/content/types';
 import type { IndicatorQuote } from '@/features/explore/market/types';
 
 // ── Static fallback data ───────────────────────────────────────────────────────
@@ -109,15 +113,20 @@ function historyToChartPoints(history: number[]): { x: number; y: number }[] {
   }));
 }
 
-function navigateToSummary(
+function navigateToLiveSummary(
   navigation: ReturnType<typeof useNavigation<NativeStackNavigationProp<AppStackParamList>>>,
-  item: { title: string; url: string; source_name: string | null; published_at: string | null },
+  item: LiveTopicNewsItem,
 ) {
+  // 실시간 토픽 카드는 DB article_id가 없음 — 라우트 파라미터로
+  // AI 요약을 직접 전달해서 RssArticleSummaryScreen이 fetch 없이도 렌더되게 함.
   navigation.navigate('RssArticleSummary', {
     title: item.title,
     url: item.url,
     source_name: item.source_name,
     published_at: item.published_at,
+    image_url: item.image_url,
+    summary: item.summary_ko,
+    content: null,
   });
 }
 
@@ -148,9 +157,12 @@ export function SearchScreen() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('환율');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // 주요 뉴스 (Google News RSS)
-  const [topNews, setTopNews] = useState<RssNewsItem[]>([]);
+  // 주요 뉴스 — 활성 탭(환율/금리/코스피/나스닥) 기반 실시간 RSS + OpenAI 요약
+  const [topNews, setTopNews] = useState<LiveTopicNewsItem[]>([]);
   const [isLoadingTop, setIsLoadingTop] = useState(false);
+
+  // 사용자 관심 키워드 (관심사 설정에서 선택된 sub-industry 라벨)
+  const [userKeywords, setUserKeywords] = useState<UserKeywordResponse[]>([]);
 
   // 경제 지수 실시간 데이터
   const [marketQuotes, setMarketQuotes] = useState<Record<string, IndicatorQuote>>({});
@@ -161,18 +173,38 @@ export function SearchScreen() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  // ── 주요 뉴스: 마운트 시 1회 로드 (Google News RSS) ───────────────────────
-  const loadTopNews = useCallback(() => {
-    setIsLoadingTop(true);
-    getTopNews(8)
-      .then((data) => { if (mountedRef.current) setTopNews(data); })
-      .catch(() => { if (mountedRef.current) setTopNews([]); })
-      .finally(() => { if (mountedRef.current) setIsLoadingTop(false); });
-  }, []);
-
+  // ── 주요 뉴스: 활성 탭이 바뀔 때마다 실시간 RSS + OpenAI 요약 ────────────
   useEffect(() => {
-    loadTopNews();
-  }, [loadTopNews]);
+    let cancelled = false;
+    setIsLoadingTop(true);
+    setTopNews([]);
+    fetchLiveTopicNews(activeTab, 6)
+      .then((data) => {
+        if (cancelled || !mountedRef.current) return;
+        setTopNews(data.items);
+      })
+      .catch(() => {
+        if (cancelled || !mountedRef.current) return;
+        setTopNews([]);
+      })
+      .finally(() => {
+        if (cancelled || !mountedRef.current) return;
+        setIsLoadingTop(false);
+      });
+    return () => { cancelled = true; };
+  }, [activeTab]);
+
+  // ── 사용자 관심 키워드: 화면 포커스마다 재로드 ────────────────────────────
+  // 관심사 설정에서 키워드를 추가/삭제하고 돌아오면 칩이 최신 상태로 보여야 함.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      listMyKeywords()
+        .then((data) => { if (active && mountedRef.current) setUserKeywords(data.items); })
+        .catch(() => { if (active && mountedRef.current) setUserKeywords([]); });
+      return () => { active = false; };
+    }, []),
+  );
 
   // ── 경제 지수: 5초 폴링 ───────────────────────────────────────────────────
   useEffect(() => {
@@ -191,10 +223,15 @@ export function SearchScreen() {
   }, []);
 
   // ── 검색: SearchResultScreen으로 이동 ────────────────────────────────────
-  function handleSearch() {
-    const q = searchQuery.trim();
+  function handleSearch(overrideQuery?: string) {
+    const q = (overrideQuery ?? searchQuery).trim();
     if (!q) return;
     navigation.navigate('SearchResult', { query: q });
+  }
+
+  function handleKeywordPress(keyword: string) {
+    setSearchQuery(keyword);
+    handleSearch(keyword);
   }
 
   // ── 지표 표시값 계산 ──────────────────────────────────────────────────────
@@ -226,10 +263,10 @@ export function SearchScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
-            onSubmitEditing={handleSearch}
+            onSubmitEditing={() => handleSearch()}
           />
           <Pressable
-            onPress={handleSearch}
+            onPress={() => handleSearch()}
             style={({ pressed }) => [styles.searchBtn, pressed && styles.searchBtnPressed]}
           >
             <Text style={styles.searchBtnText}>검색</Text>
@@ -253,6 +290,44 @@ export function SearchScreen() {
             <Text style={styles.iconText}>👤</Text>
           </Pressable>
         </View>
+      </View>
+
+      {/* ── 사용자 키워드 패널 — 검색창 바로 아래 상시 노출 ── */}
+      <View style={styles.keywordPanel}>
+        <Text style={styles.keywordPanelTitle}>내 관심 키워드</Text>
+        {userKeywords.length === 0 ? (
+          <Pressable
+            onPress={() => navigation.navigate('InterestSettings')}
+            style={({ pressed }) => [
+              styles.keywordPanelEmptyBox,
+              pressed && styles.userKeywordChipPressed,
+            ]}
+          >
+            <Text style={styles.keywordPanelEmpty}>
+              관심사 설정에서 키워드를 추가해 보세요 →
+            </Text>
+          </Pressable>
+        ) : (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.keywordPanelRow}
+          >
+            {userKeywords.map((uk) => (
+              <Pressable
+                key={uk.id}
+                onPress={() => handleKeywordPress(uk.keyword)}
+                style={({ pressed }) => [
+                  styles.userKeywordChip,
+                  pressed && styles.userKeywordChipPressed,
+                ]}
+              >
+                <Text style={styles.userKeywordChipText}>{uk.keyword}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        )}
       </View>
 
       {/* ── 탭 바 ── */}
@@ -323,55 +398,66 @@ export function SearchScreen() {
           <Text style={styles.aiText}>{fallback.aiSummary}</Text>
         </View>
 
-        {/* 주요 뉴스 섹션 */}
+        {/* 주요 뉴스 섹션 — 활성 탭(환율/금리/코스피/나스닥) 기반 */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>주요 뉴스</Text>
+          <Text style={styles.sectionTitle}>{activeTab} 주요 뉴스</Text>
           {isLoadingTop ? <ActivityIndicator color={colors.primary} size="small" /> : null}
         </View>
 
         {isLoadingTop ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={colors.primary} />
-            <Text style={styles.loadingText}>주요 뉴스를 불러오고 있어요.</Text>
+            <Text style={styles.loadingText}>
+              {activeTab} 관련 뉴스를 가져와 AI 요약 중...
+            </Text>
           </View>
         ) : topNews.length > 0 ? (
           <View style={styles.newsList}>
-            {topNews.map((item, index) => (
+            {topNews.map((item, idx) => (
               <Pressable
-                key={`${item.url}-${index}`}
-                onPress={() => navigateToSummary(navigation, item)}
+                key={`${item.url}-${idx}`}
+                onPress={() => navigateToLiveSummary(navigation, item)}
                 style={({ pressed }) => [styles.newsCard, pressed && styles.pressed]}
               >
-                <View style={styles.newsCardTop}>
-                  <View style={styles.badgeRow}>
-                    {item.source_name ? (
-                      <View style={styles.sourceBadge}>
-                        <Text style={styles.sourceBadgeText}>{item.source_name}</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text style={styles.newsTime}>{formatTime(item.published_at)}</Text>
-                </View>
-                <Text numberOfLines={2} style={styles.newsTitle}>
-                  {item.title}
-                </Text>
-                {item.keywords && item.keywords.length > 0 ? (
-                  <View style={styles.keywordRow}>
-                    {item.keywords.slice(0, 4).map((kw, i) => (
-                      <View key={`${kw}-${i}`} style={styles.keywordChip}>
-                        <Text style={styles.keywordChipText}>{kw}</Text>
-                      </View>
-                    ))}
-                  </View>
+                {item.image_url ? (
+                  <Image
+                    source={{ uri: item.image_url }}
+                    style={styles.newsThumb}
+                    resizeMode="cover"
+                  />
                 ) : null}
-                <Text style={styles.newsLink}>AI 요약 보기 →</Text>
+                <View style={styles.newsCardBody}>
+                  <View style={styles.newsCardTop}>
+                    <View style={styles.badgeRow}>
+                      {item.source_name ? (
+                        <View style={styles.sourceBadge}>
+                          <Text style={styles.sourceBadgeText}>{item.source_name}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text style={styles.newsTime}>{formatTime(item.published_at)}</Text>
+                  </View>
+                  <Text numberOfLines={2} style={styles.newsTitle}>
+                    {item.title}
+                  </Text>
+                  {item.summary_ko ? (
+                    <Text numberOfLines={3} style={styles.newsSummary}>
+                      {item.summary_ko}
+                    </Text>
+                  ) : null}
+                  <Text style={styles.newsLink}>AI 요약 보기 →</Text>
+                </View>
               </Pressable>
             ))}
           </View>
         ) : (
           <View style={styles.emptyBox}>
-            <Text style={styles.emptyTitle}>주요 뉴스를 불러오지 못했어요</Text>
-            <Text style={styles.emptyDesc}>잠시 후 다시 확인해 보세요.</Text>
+            <Text style={styles.emptyTitle}>
+              {activeTab} 관련 뉴스를 가져오지 못했어요
+            </Text>
+            <Text style={styles.emptyDesc}>
+              네트워크 상태를 확인하고 잠시 후 다시 시도해 주세요.
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -444,6 +530,50 @@ const styles = StyleSheet.create({
   iconText: {
     fontSize: 18,
   },
+  // ── 사용자 키워드 패널 ──
+  keywordPanel: {
+    backgroundColor: colors.surface,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    gap: 8,
+    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+  keywordPanelTitle: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  keywordPanelEmpty: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  keywordPanelEmptyBox: {
+    paddingVertical: 4,
+  },
+  keywordPanelRow: {
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 16,
+  },
+  userKeywordChip: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  userKeywordChipPressed: {
+    opacity: 0.8,
+  },
+  userKeywordChipText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  // ──
   tabBar: {
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
@@ -586,6 +716,14 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 16,
     borderWidth: 1,
+    overflow: 'hidden',
+  },
+  newsThumb: {
+    aspectRatio: 16 / 9,         // 원본 비율 유지 — 잘림 없이 16:9
+    backgroundColor: '#EDF0ED',
+    width: '100%',
+  },
+  newsCardBody: {
     gap: 8,
     padding: 16,
   },
@@ -623,6 +761,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 21,
+  },
+  newsSummary: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
   },
   keywordRow: {
     alignItems: 'center',
