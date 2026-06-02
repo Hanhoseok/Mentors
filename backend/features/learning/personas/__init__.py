@@ -30,4 +30,18 @@ def get_system_prompt(strategy: MentorStrategy) -> str:
     return prompts.get(strategy, VALUE_PROMPT)
 
 
-__all__ = ["get_mentor_strategy", "get_system_prompt"]
+# 그날 그 멘토 첫 진입 시 일일 리포트 카드 위에 얹는 짧은 멘토 인사.
+_OPENERS: dict[MentorStrategy, str] = {
+    MentorStrategy.VALUE: "가치투자 멘토예요. 오늘 시장, 본질 가치 관점에서 같이 짚어볼까요?",
+    MentorStrategy.GROWTH: "성장투자 멘토예요. 오늘은 어떤 성장 신호가 보이는지 같이 살펴봐요.",
+    MentorStrategy.DIVIDEND: "배당투자 멘토예요. 오늘 시장 흐름, 꾸준함의 관점에서 함께 봐요.",
+    MentorStrategy.MOMENTUM: "모멘텀투자 멘토예요. 오늘 흐름의 방향, 같이 읽어볼까요?",
+}
+
+
+def get_opener(strategy: MentorStrategy) -> str:
+    """전략별 멘토 인사 오프너 (일일 리포트 카드 헤더용)."""
+    return _OPENERS.get(strategy, _OPENERS[MentorStrategy.VALUE])
+
+
+__all__ = ["get_mentor_strategy", "get_opener", "get_system_prompt"]

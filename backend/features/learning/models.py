@@ -4,11 +4,12 @@ owner: learning
 관련 FR: FR-02, UC-04, UC-10
 """
 
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Integer,
@@ -101,5 +102,39 @@ class LearningQuizProgress(Base):
         DateTime(timezone=True),
         server_default=func.now(),
         onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class DailyOpenerLog(Base):
+    """그날 그 멘토 첫 진입 dedup 마커.
+
+    (user_id, mentor_id, opened_date) 자연키. 첫 진입 시 ON CONFLICT DO NOTHING
+    upsert로 1행만 남기고, RETURNING으로 '이번 호출이 첫 진입인지'를 판정해
+    일일 리포트 카드를 하루 한 번만 노출한다.
+    """
+
+    __tablename__ = "learning_daily_openers"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "mentor_id",
+            "opened_date",
+            name="uq_learning_daily_openers_user_mentor_date",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    mentor_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    opened_date: Mapped[date] = mapped_column(Date, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
         nullable=False,
     )

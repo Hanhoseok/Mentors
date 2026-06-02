@@ -7,11 +7,14 @@
 
 from core.contracts import DailyReportRequestedEvent
 from core.event_bus import event_bus
+from core.read_services import register_daily_report_reader
 
 from . import jobs  # noqa: F401  (cron 등록 트리거)
 from .handlers import on_daily_report_requested
+from .read_service import DailyReportReadServiceImpl
 from .router import router
 
+register_daily_report_reader(DailyReportReadServiceImpl())
 event_bus.subscribe(DailyReportRequestedEvent, on_daily_report_requested)
 
 __all__ = ["router"]

@@ -4,12 +4,12 @@
 features/<동>/__init__.py에서 register_*() 호출로 코어에 등록한다.
 """
 
-from datetime import datetime
-from typing import Protocol
+from datetime import date, datetime
+from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from core.contracts import ConceptId, MentorStrategy, NewsId, Tier, UserId
+from core.contracts import ConceptId, MentorStrategy, NewsId, ReportId, Tier, UserId
 
 
 class NewsRef(BaseModel):
@@ -44,4 +44,35 @@ class GrowthReader(Protocol):
     async def get_tier_distribution(self) -> dict[Tier, int]: ...
 
 
-__all__ = ["ContentReader", "GrowthReader", "NewsRef"]
+class DailyReportRef(BaseModel):
+    """일일 리포트 동이 다른 동에 노출하는 읽기 DTO (ADR-014).
+
+    학습 동이 '그날 첫 진입'에서 멘토 페르소나 오프너 + 브리핑 카드를 렌더할 때
+    필요한 만큼만 담는다. body는 마크다운, highlights는 [{news_id, title}].
+    """
+
+    id: ReportId
+    report_date: date
+    mentor_strategy: MentorStrategy
+    tier: Tier
+    status: str
+    body: str | None
+    highlights: list[dict[str, Any]]
+
+
+class DailyReportReader(Protocol):
+    """일일 리포트 동이 구현. 학습 동이 '그날 그 멘토 첫 진입'에서 호출해
+    선택 멘토(전략)의 오늘 리포트를 get-or-create 한다 (없으면 lazy 생성)."""
+
+    async def get_or_create_today_report(
+        self, user_id: UserId, strategy: MentorStrategy
+    ) -> DailyReportRef: ...
+
+
+__all__ = [
+    "ContentReader",
+    "DailyReportReader",
+    "DailyReportRef",
+    "GrowthReader",
+    "NewsRef",
+]

@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.ai_pipeline import critic, guardrail, hallucination, rag, tier_overlay
@@ -18,10 +19,11 @@ from core.db import SessionLocal
 from core.event_bus import event_bus
 from core.exceptions import NotFoundError
 from core.llm import Message, llm
+from core.read_services import DailyReportRef, daily_report_reader
 from core.user_context import user_context
 
-from .models import ChatMessage, ChatSession
-from .personas import get_mentor_strategy, get_system_prompt
+from .models import ChatMessage, ChatSession, DailyOpenerLog
+from .personas import get_mentor_strategy, get_opener, get_system_prompt
 from .quizzes import recommend_tier_quiz_for_chat, serialize_tier_quiz
 
 logger = logging.getLogger("learning.service")
@@ -122,6 +124,50 @@ async def add_message(
         extra={"user_id": user_id, "session_id": session_id, "role": role},
     )
     return message
+
+
+async def get_today_opener(
+    user_id: UserId,
+    mentor_id: MentorId,
+    db: AsyncSession,
+) -> tuple[bool, str, DailyReportRef]:
+    """그날 그 멘토 첫 진입: 오늘 리포트 get-or-create + 1일 1회 dedup 마커.
+
+    멘토 id로 전략을 풀고(동 내부 매핑), daily_report_reader로 오늘 리포트를
+    get-or-create 한 뒤 (user, mentor, 리포트 날짜) 마커를 멱등 upsert 한다.
+    ON CONFLICT DO NOTHING + RETURNING으로 '이번 호출이 첫 진입인지'를 판정해
+    카드 노출 여부(first_today)를 정한다. 마커 날짜는 리포트 날짜에 맞춰
+    daily_report 동의 KST '오늘' 정의와 어긋나지 않게 한다.
+
+    커밋은 호출하는 라우터가 담당한다(동 관례).
+    """
+    strategy = get_mentor_strategy(mentor_id)
+    report = await daily_report_reader.get_or_create_today_report(user_id, strategy)
+
+    inserted_id = await db.scalar(
+        pg_insert(DailyOpenerLog)
+        .values(
+            user_id=int(user_id),
+            mentor_id=int(mentor_id),
+            opened_date=report.report_date,
+        )
+        .on_conflict_do_nothing(
+            index_elements=["user_id", "mentor_id", "opened_date"]
+        )
+        .returning(DailyOpenerLog.id)
+    )
+    first_today = inserted_id is not None
+
+    logger.info(
+        "learning.today_opener",
+        extra={
+            "user_id": user_id,
+            "mentor_id": mentor_id,
+            "report_id": report.id,
+            "first_today": first_today,
+        },
+    )
+    return first_today, get_opener(strategy), report
 
 
 async def stream_assistant_response(

@@ -22,6 +22,7 @@ from .schemas import (
     ChatStreamReq,
     CreateSessionReq,
     CurrentTierQuizzesRes,
+    DailyReportCard,
     MessageListRes,
     MessageRes,
     QuizOption,
@@ -32,6 +33,7 @@ from .schemas import (
     SubmitQuizReq,
     SubmitQuizRes,
     TierQuizItemRes,
+    TodayOpenerRes,
 )
 
 router = APIRouter(prefix="/api/learning", tags=["learning"])
@@ -127,6 +129,36 @@ async def chat_stream(
             user_id=UserId(user.id),
             user_content=req.content,
         )
+    )
+
+
+@router.get("/mentors/{mentor_id}/today-opener", response_model=TodayOpenerRes)
+async def today_opener(
+    mentor_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> TodayOpenerRes:
+    """그날 그 멘토 첫 진입 — 오늘 리포트를 get-or-create 하고 1일 1회 카드 노출 마커를 찍는다.
+
+    first_today=True면 프론트가 일일 리포트 카드를 노출(하루 한 번). 재진입이면
+    first_today=False지만 report는 동일하게 내려 '전체 리포트 보기' 딥링크는 유지.
+    """
+    first_today, opener, report = await service.get_today_opener(
+        UserId(user.id), MentorId(mentor_id), db
+    )
+    await db.commit()
+    return TodayOpenerRes(
+        first_today=first_today,
+        opener=opener,
+        report=DailyReportCard(
+            id=report.id,
+            report_date=report.report_date,
+            mentor_strategy=report.mentor_strategy.value,
+            tier=report.tier.value,
+            status=report.status,
+            body=report.body,
+            highlights=report.highlights,
+        ),
     )
 
 

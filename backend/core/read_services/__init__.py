@@ -2,11 +2,19 @@
 
 from typing import Any, cast
 
-from .protocols import ContentReader, GrowthReader, NewsRef
+from .protocols import (
+    ContentReader,
+    DailyReportReader,
+    DailyReportRef,
+    GrowthReader,
+    NewsRef,
+)
 from .registry import (
     get_content_reader,
+    get_daily_report_reader,
     get_growth_reader,
     register_content_reader,
+    register_daily_report_reader,
     register_growth_reader,
 )
 
@@ -24,16 +32,24 @@ class _LazyReaderProxy:
 
 content_reader: ContentReader = cast(ContentReader, _LazyReaderProxy(get_content_reader))
 growth_reader: GrowthReader = cast(GrowthReader, _LazyReaderProxy(get_growth_reader))
+daily_report_reader: DailyReportReader = cast(
+    DailyReportReader, _LazyReaderProxy(get_daily_report_reader)
+)
 
 
 __all__ = [
     "ContentReader",
+    "DailyReportReader",
+    "DailyReportRef",
     "GrowthReader",
     "NewsRef",
     "content_reader",
+    "daily_report_reader",
     "get_content_reader",
+    "get_daily_report_reader",
     "get_growth_reader",
     "growth_reader",
     "register_content_reader",
+    "register_daily_report_reader",
     "register_growth_reader",
 ]

@@ -14,8 +14,9 @@ logger = logging.getLogger("daily_report.handlers")
 
 
 async def on_daily_report_requested(event: DailyReportRequestedEvent) -> None:
-    # TODO: event.event_id를 처리 기록 테이블(예: report_processed_events)에 UNIQUE 저장하여
-    # 같은 이벤트가 두 번 와도 한 번만 생성되게 보장 (멱등성 — §7.4).
+    # 멱등성(§7.4): generate_for_user가 (user, strategy, date) 자연키로 get-or-create
+    # 하므로 같은 이벤트가 두 번 와도 리포트·푸시는 한 번만 발생한다. 별도 event_id
+    # 처리 기록 테이블은 불필요.
     try:
         await generate_for_user(event.user_id)
     except Exception:

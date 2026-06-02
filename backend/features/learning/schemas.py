@@ -1,6 +1,7 @@
 """학습 동 Pydantic 스키마 — 요청/응답 모델."""
 
-from datetime import datetime
+from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -93,3 +94,28 @@ class TierQuizItemRes(BaseModel):
 class CurrentTierQuizzesRes(BaseModel):
     tier: str
     quizzes: list[TierQuizItemRes]
+
+
+# --- 그날 그 멘토 첫 진입: 일일 리포트 오프너 ---
+class DailyReportCard(BaseModel):
+    """채팅 진입 시 노출하는 일일 리포트 카드. id로 mentors://report/{id} 딥링크 구성."""
+
+    id: int
+    report_date: date
+    mentor_strategy: str
+    tier: str
+    status: str
+    body: str | None
+    highlights: list[dict[str, Any]]
+
+
+class TodayOpenerRes(BaseModel):
+    """그날 그 멘토 첫 진입 응답.
+
+    first_today=True일 때만 프론트가 카드를 노출한다(하루 한 번). 재진입 시
+    first_today=False지만 report는 동일하게 내려 '전체 리포트 보기'는 항상 가능.
+    """
+
+    first_today: bool
+    opener: str
+    report: DailyReportCard
