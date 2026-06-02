@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { type NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -11,216 +11,243 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import axios from 'axios';
 import { colors } from '@/constants/colors';
-import { getAuthApiErrorMessage } from '@/features/auth/api';
+import {
+  addMyKeyword,
+  listIndustries,
+  listMyKeywords,
+  removeMyKeyword,
+} from '@/features/explore/content/api';
+import type { IndustryItem } from '@/features/explore/content/types';
 import { getOnboardingStatus, saveOnboardingProfile } from '@/features/onboarding/api';
 import type { InterestTag } from '@/features/onboarding/types';
+import { buildLearningPreferencesPayload } from '@/features/settings/logic';
 import { useUserStore } from '@/store/userStore';
 import type { AppStackParamList } from '@/navigation/types';
-import { buildLearningPreferencesPayload } from '@/features/settings/logic';
 
 type Nav = NativeStackNavigationProp<AppStackParamList, 'InterestSettings'>;
 
-// ── 계층형 관심사 구조 ─────────────────────────────────
-interface SubItem { tag: InterestTag; label: string }
-interface InterestGroup { id: string; label: string; emoji: string; tags: InterestTag[]; subs: SubItem[] }
+// 산업 하위 키워드(label_ko) → 온보딩 InterestTag 매핑.
+// 매핑 없는 라벨은 user_keyword에만 저장되고 onboarding profile.interests에는 반영 안 됨.
+const SUB_KEYWORD_TO_INTEREST: Record<string, InterestTag> = {
+  // IT기술
+  인공지능: 'ai',
+  클라우드: 'it',
+  소프트웨어: 'it',
+  보안: 'it',
+  인터넷: 'it',
+  양자컴퓨터: 'tech',
+  'IT솔루션 구축': 'it',
+  // 반도체
+  '반도체 부품소재': 'semiconductor',
+  '반도체 장비': 'semiconductor',
+  '반도체 파운드리': 'semiconductor',
+  '반도체 패키징': 'semiconductor',
+  '반도체 팹리스': 'semiconductor',
+  종합반도체: 'semiconductor',
+  // 배터리
+  배터리부품: 'battery',
+  배터리소재: 'battery',
+  배터리장비: 'battery',
+  배터리제조: 'battery',
+  '폐배터리 재활용': 'battery',
+  // 바이오 + 의료
+  바이오서비스: 'bio',
+  바이오시밀러: 'bio',
+  바이오신약: 'bio',
+  의료기기: 'bio',
+  의료서비스: 'bio',
+  제약: 'bio',
+  // 금융
+  결제서비스: 'finance',
+  금융그룹: 'finance',
+  금융기기: 'finance',
+  금융상품거래소: 'finance',
+  벤처캐피탈: 'finance',
+  보험: 'finance',
+  신용평가: 'finance',
+  암호화폐: 'crypto',
+  은행: 'finance',
+  증권: 'finance',
+  카드: 'finance',
+  // 방위산업물자 + 드론
+  방위산업: 'defense',
+  드론: 'defense',
+  // 전력에너지 + 원유
+  '신재생 에너지': 'energy',
+  '원자력 발전': 'energy',
+  전기설비: 'energy',
+  화력발전: 'energy',
+  원유개발: 'energy',
+  원유정제: 'energy',
+  // 엔터테인먼트
+  광고: 'entertainment-media',
+  '동영상 플랫폼': 'entertainment-media',
+  방송: 'entertainment-media',
+  영화: 'entertainment-media',
+  웹툰: 'entertainment-media',
+  음원: 'entertainment-media',
+  출판: 'entertainment-media',
+  캐릭터: 'entertainment-media',
+  // 화장품 / 의류 / 유통 / 음식료 / 여행 / 생활용품
+  '화장품 브랜드': 'fashion-consumer',
+  '화장품 제조': 'fashion-consumer',
+  섬유: 'fashion-consumer',
+  '의류 브랜드': 'fashion-consumer',
+  의류제조: 'fashion-consumer',
+  대형마트: 'fashion-consumer',
+  면세점: 'fashion-consumer',
+  백화점: 'fashion-consumer',
+  온라인쇼핑: 'fashion-consumer',
+  편의점: 'fashion-consumer',
+  음식료: 'fashion-consumer',
+  렌터카: 'fashion-consumer',
+  여행플랫폼: 'fashion-consumer',
+  카지노: 'fashion-consumer',
+  '호텔과 리조트': 'fashion-consumer',
+  그릇: 'fashion-consumer',
+  마스크: 'fashion-consumer',
+  // 자동차 / 스마트폰 / 통신 / 디스플레이 → tech
+  수소차: 'tech',
+  전기차: 'tech',
+  '전기차 부품': 'tech',
+  '스마트폰 부품': 'tech',
+  '스마트폰 제조': 'tech',
+  이동통신사: 'tech',
+  통신장비: 'tech',
+  '디스플레이 부품소재': 'tech',
+  '디스플레이 장비': 'tech',
+  '디스플레이 패널': 'tech',
+  LED: 'tech',
+  // 리츠 → etf (부동산 펀드 묶음)
+  '상업용 리츠': 'etf',
+  '오피스 리츠': 'etf',
+  '인프라 리츠': 'etf',
+  '주거용 리츠': 'etf',
+  // 금속 → value (원자재)
+  광산개발: 'value',
+  구리: 'value',
+  아연: 'value',
+  알루미늄: 'value',
+  철강: 'value',
+  // 화학 → value (원자재/산업재)
+  '비료와 농약': 'value',
+  '산업용 가스': 'value',
+  화학원료: 'value',
+  화학제품: 'value',
+  // 탄소저감 → energy
+  탄소배출권: 'energy',
+  // 종이 → value
+  골판지: 'value',
+  백판지: 'value',
+  // 조선 → value (산업재/제조)
+  조선기자재: 'value',
+  조선사: 'value',
+  // 전자부품 → tech
+  가전부품: 'tech',
+  // 자동차 (잔여) → tech
+  오토바이: 'tech',
+  자동차부품: 'tech',
+  자동차브랜드: 'tech',
+  자동차유통: 'tech',
+  // 유통 (잔여) → global (수출입 성격)
+  무역: 'global',
+  // 운송 → global / value
+  물류: 'global',
+  해상운송: 'global',
+  항공사: 'global',
+  철도: 'value',
+  // 수자원 → energy (유틸리티)
+  수자원: 'energy',
+  // 기계 → value / tech
+  '농업용 기계': 'value',
+  로봇: 'tech',
+  '산업용 기계': 'value',
+  // 농업 → value (원자재)
+  농업: 'value',
+  // 교육 → entertainment-media (콘텐츠/출판) / tech (장비)
+  교육서비스: 'entertainment-media',
+  교육장비: 'tech',
+  교육출판: 'entertainment-media',
+};
 
-const INTEREST_GROUPS: InterestGroup[] = [
-  {
-    id: 'stocks', label: '주식', emoji: '📈',
-    tags: ['domestic-stock', 'us-stock', 'global'],
-    subs: [
-      { tag: 'domestic-stock', label: '국내 주식 (코스피·코스닥)' },
-      { tag: 'us-stock', label: '미국 주식 (나스닥·S&P500)' },
-      { tag: 'global', label: '해외 주식 (미국 외)' },
-    ],
-  },
-  {
-    id: 'tech', label: 'IT·테크', emoji: '💻',
-    tags: ['it'],
-    subs: [
-      { tag: 'it', label: '소프트웨어·플랫폼' },
-      { tag: 'it', label: '보안·네트워크' },
-      { tag: 'it', label: '클라우드·SaaS' },
-      { tag: 'it', label: '인터넷·이커머스' },
-    ],
-  },
-  {
-    id: 'hardware', label: '반도체·전자', emoji: '💾',
-    tags: ['semiconductor', 'battery'],
-    subs: [
-      { tag: 'semiconductor', label: '반도체 설계·제조' },
-      { tag: 'semiconductor', label: '반도체 장비·소재' },
-      { tag: 'battery', label: '2차전지·배터리' },
-      { tag: 'battery', label: '디스플레이·가전' },
-    ],
-  },
-  {
-    id: 'ai', label: 'AI', emoji: '🤖',
-    tags: ['ai'],
-    subs: [
-      { tag: 'ai', label: 'AI 서비스·앱' },
-      { tag: 'ai', label: 'AI 인프라·칩' },
-      { tag: 'ai', label: 'AI 로봇·자동화' },
-    ],
-  },
-  {
-    id: 'energy', label: '에너지', emoji: '⚡',
-    tags: ['energy'],
-    subs: [
-      { tag: 'energy', label: '신재생 에너지 (태양광·풍력)' },
-      { tag: 'energy', label: '원유·천연가스' },
-      { tag: 'energy', label: '원자력·전력설비' },
-    ],
-  },
-  {
-    id: 'finance', label: '금융', emoji: '💵',
-    tags: ['finance', 'crypto'],
-    subs: [
-      { tag: 'finance', label: '은행·보험' },
-      { tag: 'finance', label: '증권·자산운용' },
-      { tag: 'finance', label: '핀테크·결제' },
-      { tag: 'crypto', label: '암호화폐·블록체인' },
-    ],
-  },
-  {
-    id: 'bio', label: '바이오·헬스', emoji: '🧬',
-    tags: ['bio'],
-    subs: [
-      { tag: 'bio', label: '제약·신약 개발' },
-      { tag: 'bio', label: '의료기기·서비스' },
-      { tag: 'bio', label: '바이오시밀러·CRO' },
-    ],
-  },
-  {
-    id: 'defense', label: '방산·항공우주', emoji: '🛡️',
-    tags: ['defense'],
-    subs: [
-      { tag: 'defense', label: '방위산업' },
-      { tag: 'defense', label: '항공우주·드론' },
-    ],
-  },
-  {
-    id: 'entertainment', label: '엔터·미디어', emoji: '🎬',
-    tags: ['entertainment-media'],
-    subs: [
-      { tag: 'entertainment-media', label: 'K-콘텐츠·엔터테인먼트' },
-      { tag: 'entertainment-media', label: 'OTT·스트리밍' },
-      { tag: 'entertainment-media', label: '게임·메타버스' },
-    ],
-  },
-  {
-    id: 'consumer', label: '소비재·유통', emoji: '🛒',
-    tags: ['fashion-consumer'],
-    subs: [
-      { tag: 'fashion-consumer', label: '패션·뷰티·화장품' },
-      { tag: 'fashion-consumer', label: '유통·마트·편의점' },
-      { tag: 'fashion-consumer', label: '음식료·외식' },
-      { tag: 'fashion-consumer', label: '레저·여행' },
-    ],
-  },
-  {
-    id: 'etf', label: 'ETF·펀드', emoji: '📊',
-    tags: ['etf'],
-    subs: [
-      { tag: 'etf', label: 'ETF (국내·해외)' },
-      { tag: 'etf', label: '리츠 (부동산 펀드)' },
-      { tag: 'etf', label: '인덱스 펀드' },
-    ],
-  },
-  {
-    id: 'macro', label: '거시경제', emoji: '🌐',
-    tags: ['macro', 'value'],
-    subs: [
-      { tag: 'macro', label: '금리·환율 흐름' },
-      { tag: 'macro', label: '경기 지표·사이클' },
-      { tag: 'value', label: '원자재·금속' },
-    ],
-  },
-];
+const MAPPED_INTEREST_POOL: Set<InterestTag> = new Set(
+  Object.values(SUB_KEYWORD_TO_INTEREST),
+);
 
-// ── 헬퍼 ──────────────────────────────────────────────
-function isGroupFullySelected(group: InterestGroup, selected: InterestTag[]): boolean {
-  return group.tags.every((t) => selected.includes(t));
-}
-function isGroupPartiallySelected(group: InterestGroup, selected: InterestTag[]): boolean {
-  return group.tags.some((t) => selected.includes(t));
-}
-function toggleGroup(group: InterestGroup, selected: InterestTag[]): InterestTag[] {
-  const full = isGroupFullySelected(group, selected);
-  if (full) {
-    return selected.filter((t) => !group.tags.includes(t));
-  }
-  const newSet = new Set(selected);
-  group.tags.forEach((t) => newSet.add(t));
-  return [...newSet];
-}
-function toggleSub(tag: InterestTag, selected: InterestTag[]): InterestTag[] {
-  if (selected.includes(tag)) return selected.filter((t) => t !== tag);
-  return [...new Set([...selected, tag])];
+// 산업 카테고리 → 대표 아이콘 (한글명 매칭)
+const INDUSTRY_ICON: Record<string, string> = {
+  IT기술: '💻',
+  화학: '🧪',
+  화장품: '💄',
+  통신: '📡',
+  탄소저감: '🌱',
+  종이: '📄',
+  조선: '🚢',
+  전자부품: '🔌',
+  전력에너지: '⚡',
+  자동차: '🚗',
+  의류: '👗',
+  의료: '🏥',
+  음식료: '🍽️',
+  유통: '🛒',
+  원유: '🛢️',
+  운송: '🚚',
+  엔터테인먼트: '🎬',
+  스마트폰: '📱',
+  여행: '✈️',
+  수자원: '💧',
+  배터리: '🔋',
+  반도체: '💾',
+  방위산업물자: '🛡️',
+  생활용품: '🧴',
+  바이오: '🧬',
+  리츠: '🏢',
+  디스플레이: '🖥️',
+  기계: '⚙️',
+  농업: '🌾',
+  금융: '💵',
+  금속: '⛏️',
+  교육: '🎓',
+};
+
+function iconFor(name: string): string {
+  return INDUSTRY_ICON[name] ?? '📌';
 }
 
-// ── Group Card ─────────────────────────────────────────
-function GroupCard({
-  group,
-  selected,
-  onChange,
-}: {
-  group: InterestGroup;
-  selected: InterestTag[];
-  onChange: (next: InterestTag[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const isFull = isGroupFullySelected(group, selected);
-  const isPartial = !isFull && isGroupPartiallySelected(group, selected);
+// ── Industry Card ─────────────────────────────────────
+interface IndustryCardProps {
+  industry: IndustryItem;
+  selected: Set<string>;
+  onToggle: (label: string) => void;
+}
 
+function IndustryCard({ industry, selected, onToggle }: IndustryCardProps) {
   return (
-    <View style={styles.groupCard}>
-      {/* 부모 헤더 */}
-      <Pressable
-        onPress={() => setOpen((v) => !v)}
-        style={styles.groupHeader}
-      >
-        <View style={styles.groupHeaderLeft}>
-          <Text style={styles.groupEmoji}>{group.emoji}</Text>
-          <Text style={styles.groupLabel}>{group.label}</Text>
-          {isPartial && <View style={styles.partialDot} />}
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        <View style={styles.iconBox}>
+          <Text style={styles.iconText}>{iconFor(industry.name_ko)}</Text>
         </View>
-        <View style={styles.groupHeaderRight}>
-          {/* 부모 자체 선택 체크박스 */}
-          <Pressable
-            onPress={() => onChange(toggleGroup(group, selected))}
-            style={[styles.groupCheck, isFull && styles.groupCheckSelected]}
-            hitSlop={8}
-          >
-            {isFull ? <Text style={styles.checkmark}>✓</Text> : null}
-          </Pressable>
-          <Text style={styles.expandArrow}>{open ? '⌃' : '⌄'}</Text>
-        </View>
-      </Pressable>
-
-      {/* 서브 아이템 */}
-      {open && (
-        <View style={styles.subList}>
-          {group.subs.map((sub, i) => {
-            const isSelected = selected.includes(sub.tag);
-            return (
-              <Pressable
-                key={`${sub.tag}-${i}`}
-                onPress={() => onChange(toggleSub(sub.tag, selected))}
-                style={[styles.subItem, isSelected && styles.subItemSelected]}
-              >
-                <View style={[styles.subCheck, isSelected && styles.subCheckSelected]}>
-                  {isSelected ? <Text style={styles.subCheckmark}>✓</Text> : null}
-                </View>
-                <Text style={[styles.subLabel, isSelected && styles.subLabelSelected]}>
-                  {sub.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
+        <Text style={styles.cardTitle}>{industry.name_ko}</Text>
+      </View>
+      <View style={styles.pillGrid}>
+        {industry.keywords.map((kw) => {
+          const isSelected = selected.has(kw.label_ko);
+          return (
+            <Pressable
+              key={kw.id}
+              onPress={() => onToggle(kw.label_ko)}
+              style={[styles.pill, isSelected && styles.pillSelected]}
+            >
+              <Text style={[styles.pillText, isSelected && styles.pillTextSelected]}>
+                {kw.label_ko}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -231,9 +258,22 @@ export function InterestSettingsScreen() {
   const navigation = useNavigation<Nav>();
   const queryClient = useQueryClient();
 
-  const [selectedInterests, setSelectedInterests] = useState<InterestTag[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [hydrated, setHydrated] = useState(false);
-  const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+
+  const industriesQuery = useQuery({
+    queryKey: ['content-industries'],
+    queryFn: listIndustries,
+    enabled: Boolean(accessToken),
+    staleTime: 1000 * 60 * 30,
+  });
+
+  const userKeywordsQuery = useQuery({
+    queryKey: ['user-keywords', accessToken],
+    queryFn: listMyKeywords,
+    enabled: Boolean(accessToken),
+  });
 
   const onboardingQuery = useQuery({
     queryKey: ['onboarding-status', accessToken],
@@ -242,89 +282,205 @@ export function InterestSettingsScreen() {
     retry: 0,
   });
 
-  const profile = onboardingQuery.data?.profile ?? null;
+  // 전체 산업 sub label 집합 (manual 키워드와 분리하기 위한 풀)
+  const industryLabelPool = useMemo(() => {
+    const set = new Set<string>();
+    industriesQuery.data?.forEach((ind) =>
+      ind.keywords.forEach((k) => set.add(k.label_ko)),
+    );
+    return set;
+  }, [industriesQuery.data]);
+
+  // 현재 user_keyword 중 산업 풀에 속한 것만 초기 선택으로 hydration
+  const initialSelected = useMemo(() => {
+    const set = new Set<string>();
+    userKeywordsQuery.data?.items.forEach((uk) => {
+      if (industryLabelPool.has(uk.keyword)) set.add(uk.keyword);
+    });
+    return set;
+  }, [userKeywordsQuery.data, industryLabelPool]);
+
+  // 삭제 mutation에 필요한 keyword string → user_keyword id 매핑
+  const userKeywordIdByLabel = useMemo(() => {
+    const map = new Map<string, number>();
+    userKeywordsQuery.data?.items.forEach((uk) => {
+      map.set(uk.keyword, uk.id);
+    });
+    return map;
+  }, [userKeywordsQuery.data]);
 
   useEffect(() => {
-    if (!profile || hydrated) return;
-    setSelectedInterests(profile.interests);
-    setHydrated(true);
-  }, [profile, hydrated]);
+    if (hydrated) return;
+    if (industriesQuery.data && userKeywordsQuery.data) {
+      setSelected(new Set(initialSelected));
+      setHydrated(true);
+    }
+  }, [hydrated, industriesQuery.data, userKeywordsQuery.data, initialSelected]);
+
+  // 선택된 sub-keyword들에서 InterestTag 집합을 도출.
+  function deriveInterestTags(labels: Set<string>): Set<InterestTag> {
+    const tags = new Set<InterestTag>();
+    labels.forEach((label) => {
+      const tag = SUB_KEYWORD_TO_INTEREST[label];
+      if (tag) tags.add(tag);
+    });
+    return tags;
+  }
 
   const saveMutation = useMutation({
-    mutationFn: saveOnboardingProfile,
-    onSuccess: async () => {
-      setFeedbackMsg('관심사를 저장했어요.');
-      await queryClient.invalidateQueries({ queryKey: ['onboarding-status', accessToken] });
+    mutationFn: async () => {
+      // 1) user_keyword diff sync
+      const toAdd: string[] = [];
+      const toRemove: number[] = [];
+      selected.forEach((label) => {
+        if (!initialSelected.has(label)) toAdd.push(label);
+      });
+      initialSelected.forEach((label) => {
+        if (!selected.has(label)) {
+          const id = userKeywordIdByLabel.get(label);
+          if (id !== undefined) toRemove.push(id);
+        }
+      });
+
+      for (const label of toAdd) {
+        try {
+          await addMyKeyword({ keyword: label, language: 'ko' });
+        } catch (err) {
+          if (axios.isAxiosError(err) && err.response?.status === 409) continue;
+          throw err;
+        }
+      }
+      for (const id of toRemove) {
+        try {
+          await removeMyKeyword(id);
+        } catch (err) {
+          if (axios.isAxiosError(err) && err.response?.status === 404) continue;
+          throw err;
+        }
+      }
+
+      // 2) onboarding profile.interests merge & save
+      const profile = onboardingQuery.data?.profile;
+      let interestsUpdated = false;
+      if (profile) {
+        const derived = deriveInterestTags(selected);
+        // 기존 interests 중 산업 매핑 풀에 속하지 않는 태그는 보존
+        // (예: 'macro', 'dividend' — 이 화면 외부에서 설정된 값)
+        const preserved = profile.interests.filter(
+          (t) => !MAPPED_INTEREST_POOL.has(t),
+        );
+        const mergedInterests = Array.from(
+          new Set<InterestTag>([...preserved, ...derived]),
+        );
+
+        // 기존과 동일하면 호출 생략, 비어 있으면(서버 min_length=1) 호출 생략
+        const sameAsBefore =
+          mergedInterests.length === profile.interests.length &&
+          mergedInterests.every((t) => profile.interests.includes(t));
+        if (mergedInterests.length > 0 && !sameAsBefore) {
+          await saveOnboardingProfile(
+            buildLearningPreferencesPayload(profile, {
+              interests: mergedInterests,
+              preferredStyle: profile.preferred_style,
+            }),
+          );
+          interestsUpdated = true;
+        }
+      }
+
+      return {
+        added: toAdd.length,
+        removed: toRemove.length,
+        interestsUpdated,
+      };
+    },
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ['user-keywords', accessToken] });
+      if (result.interestsUpdated) {
+        await queryClient.invalidateQueries({
+          queryKey: ['onboarding-status', accessToken],
+        });
+      }
+      setFeedback(`저장됨 (추가 ${result.added} · 삭제 ${result.removed})`);
       navigation.goBack();
     },
-    onError: (error) => {
-      setFeedbackMsg(getAuthApiErrorMessage(error, '저장에 실패했어요.'));
+    onError: () => {
+      setFeedback('저장에 실패했어요. 잠시 후 다시 시도해 주세요.');
     },
   });
 
-  function handleSave() {
-    if (!profile || selectedInterests.length === 0) return;
-    setFeedbackMsg(null);
-    saveMutation.mutate(
-      buildLearningPreferencesPayload(profile, {
-        interests: selectedInterests,
-        preferredStyle: profile.preferred_style,
-      }),
-    );
+  function toggleLabel(label: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
   }
 
-  const selectedCount = [...new Set(selectedInterests)].length;
+  const hasChanges = useMemo(() => {
+    if (selected.size !== initialSelected.size) return true;
+    for (const k of selected) if (!initialSelected.has(k)) return true;
+    return false;
+  }, [selected, initialSelected]);
+
+  const isLoading =
+    industriesQuery.isLoading ||
+    userKeywordsQuery.isLoading ||
+    onboardingQuery.isLoading;
+  const canSave = hydrated && hasChanges && !saveMutation.isPending;
 
   return (
     <SafeAreaView style={styles.screen}>
       <View style={styles.header}>
-        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={8}>
           <Text style={styles.backArrow}>←</Text>
         </Pressable>
         <Text style={styles.headerTitle}>관심사 설정</Text>
+        <Pressable
+          onPress={() => canSave && saveMutation.mutate()}
+          disabled={!canSave}
+          style={({ pressed }) => [
+            styles.saveBtn,
+            !canSave && styles.saveBtnDisabled,
+            pressed && canSave && styles.saveBtnPressed,
+          ]}
+        >
+          <Text style={[styles.saveBtnText, !canSave && styles.saveBtnTextDisabled]}>
+            {saveMutation.isPending ? '저장 중' : '설정'}
+          </Text>
+        </Pressable>
       </View>
 
-      {onboardingQuery.isLoading ? (
-        <View style={styles.center}><ActivityIndicator color={colors.primary} /></View>
+      {isLoading ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
       ) : (
-        <>
-          <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-            <Text style={styles.description}>
-              선택한 주제 기반으로 리포트와 뉴스가 추천돼요.{'\n'}
-              분야를 누르면 세부 항목을 고를 수 있어요.
-            </Text>
-            <Text style={styles.countLabel}>
-              현재 {selectedCount}개 태그 선택됨
-            </Text>
+        <ScrollView
+          contentContainerStyle={styles.scroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.description}>
+            관심 있는 산업 분야의 세부 키워드를 선택해 주세요.{'\n'}
+            선택된 키워드 기반으로 뉴스가 추천돼요.
+          </Text>
+          <Text style={styles.countLabel}>현재 {selected.size}개 선택됨</Text>
 
-            {INTEREST_GROUPS.map((group) => (
-              <GroupCard
-                key={group.id}
-                group={group}
-                selected={selectedInterests}
-                onChange={setSelectedInterests}
-              />
-            ))}
+          {industriesQuery.data?.map((ind) => (
+            <IndustryCard
+              key={ind.id}
+              industry={ind}
+              selected={selected}
+              onToggle={toggleLabel}
+            />
+          ))}
 
-            {feedbackMsg ? <Text style={styles.feedbackText}>{feedbackMsg}</Text> : null}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            <Pressable
-              disabled={selectedInterests.length === 0 || saveMutation.isPending}
-              onPress={handleSave}
-              style={({ pressed }) => [
-                styles.saveBtn,
-                (selectedInterests.length === 0 || saveMutation.isPending) && styles.saveBtnDisabled,
-                pressed && styles.saveBtnPressed,
-              ]}
-            >
-              <Text style={styles.saveBtnText}>
-                {saveMutation.isPending ? '저장 중...' : '저장'}
-              </Text>
-            </Pressable>
-          </View>
-        </>
+          {feedback ? <Text style={styles.feedbackText}>{feedback}</Text> : null}
+          {industriesQuery.isError ? (
+            <Text style={styles.errorText}>산업 정보를 불러오지 못했어요.</Text>
+          ) : null}
+        </ScrollView>
       )}
     </SafeAreaView>
   );
@@ -344,108 +500,70 @@ const styles = StyleSheet.create({
   },
   backBtn: { alignItems: 'center', height: 32, justifyContent: 'center', width: 32 },
   backArrow: { color: colors.text, fontSize: 22, fontWeight: '400' },
-  headerTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
-  center: { alignItems: 'center', flex: 1, justifyContent: 'center' },
-  scroll: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 120, gap: 10 },
-  description: { color: colors.muted, fontSize: 13, lineHeight: 19 },
-  countLabel: { color: colors.primary, fontSize: 12, fontWeight: '600' },
-  // Group card
-  groupCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 14,
-    borderWidth: 1,
-    overflow: 'hidden',
-  },
-  groupHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  groupHeaderLeft: { alignItems: 'center', flexDirection: 'row', gap: 8, flex: 1 },
-  groupEmoji: { fontSize: 18 },
-  groupLabel: { color: colors.text, fontSize: 15, fontWeight: '700' },
-  partialDot: {
-    backgroundColor: colors.primary,
-    borderRadius: 4,
-    height: 8,
-    width: 8,
-  },
-  groupHeaderRight: { alignItems: 'center', flexDirection: 'row', gap: 12 },
-  groupCheck: {
-    alignItems: 'center',
-    borderColor: colors.border,
-    borderRadius: 6,
-    borderWidth: 1.5,
-    height: 20,
-    justifyContent: 'center',
-    width: 20,
-  },
-  groupCheckSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  checkmark: { color: colors.surface, fontSize: 11, fontWeight: '800' },
-  expandArrow: { color: colors.muted, fontSize: 16 },
-  // Sub items
-  subList: {
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    gap: 0,
-  },
-  subItem: {
-    alignItems: 'center',
-    borderBottomColor: colors.border,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    flexDirection: 'row',
-    gap: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  subItemSelected: { backgroundColor: '#F0FAF5' },
-  subCheck: {
-    alignItems: 'center',
-    borderColor: colors.border,
-    borderRadius: 4,
-    borderWidth: 1.5,
-    height: 18,
-    justifyContent: 'center',
-    width: 18,
-  },
-  subCheckSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  subCheckmark: { color: colors.surface, fontSize: 10, fontWeight: '800' },
-  subLabel: { color: colors.text, flex: 1, fontSize: 14 },
-  subLabelSelected: { color: colors.primary, fontWeight: '600' },
-  // Feedback
-  feedbackText: { color: colors.primary, fontSize: 13, fontWeight: '600', textAlign: 'center' },
-  // Footer
-  footer: {
-    backgroundColor: colors.surface,
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    bottom: 0,
-    left: 0,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 24,
-    position: 'absolute',
-    right: 0,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-  },
+  headerTitle: { color: colors.text, flex: 1, fontSize: 17, fontWeight: '700' },
   saveBtn: {
     alignItems: 'center',
     backgroundColor: colors.primary,
-    borderRadius: 14,
+    borderRadius: 10,
     justifyContent: 'center',
-    minHeight: 52,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
+    minHeight: 34,
+    paddingHorizontal: 14,
   },
-  saveBtnDisabled: { opacity: 0.45 },
-  saveBtnPressed: { opacity: 0.88 },
-  saveBtnText: { color: colors.surface, fontSize: 16, fontWeight: '700' },
+  saveBtnDisabled: { backgroundColor: colors.border },
+  saveBtnPressed: { opacity: 0.85 },
+  saveBtnText: { color: colors.surface, fontSize: 14, fontWeight: '700' },
+  saveBtnTextDisabled: { color: colors.muted },
+  center: { alignItems: 'center', flex: 1, justifyContent: 'center' },
+  scroll: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40, gap: 12 },
+  description: { color: colors.muted, fontSize: 13, lineHeight: 19 },
+  countLabel: { color: colors.primary, fontSize: 12, fontWeight: '600' },
+  // Industry card
+  card: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  cardHeader: { alignItems: 'center', flexDirection: 'row', gap: 10 },
+  iconBox: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderRadius: 10,
+    height: 36,
+    justifyContent: 'center',
+    width: 36,
+  },
+  iconText: { fontSize: 18 },
+  cardTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  // Pill grid (wrap)
+  pillGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  pill: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  pillSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  pillText: { color: colors.text, fontSize: 13, fontWeight: '600' },
+  pillTextSelected: { color: colors.surface },
+  // Misc
+  feedbackText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  errorText: {
+    color: colors.rose,
+    fontSize: 13,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
 });

@@ -10,48 +10,94 @@ PR-Ⅱ: /admin/retry-failed (AI 처리 실패 재시도)
 
 from __future__ import annotations
 
-import json as _json
+import asyncio
 import logging
-import re as _re
-from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc, func, select
+from dataclasses import dataclass, field
+
+from sqlalchemy import and_, desc, func, or_, select, update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth import get_current_user
 from core.auth.models import User
-from core.contracts import MentorStrategy, MessageRole, ScrapAddedEvent
+from core.contracts import MentorStrategy, ScrapAddedEvent
 from core.db import get_db
 from core.event_bus import event_bus
 from core.exceptions import ConflictError, NotFoundError
-from core.llm import Message, llm
 from core.vector_store import vector_store
 
-from .collectors.rss import GoogleNewsRSSCollector
-from .extractor import content_extractor
+from sqlalchemy.orm import selectinload
+
 from .keyword_service import add_user_keyword, list_user_keywords, remove_user_keyword
-from .models import NewsArticle, Scrap
+from .live_news import get_cached_topic_news
+from .models import (
+    Industry,
+    IndustryKeyword,
+    MasterKeyword,
+    MasterKeywordCompany,
+    NewsArticle,
+    Scrap,
+)
 from .schemas import (
+    IndustryItem,
+    IndustryKeywordItem,
+    LiveTopicNewsItem,
+    LiveTopicNewsResponse,
     NewsArticleResponse,
     NewsListResponse,
-    RssNewsItem,
     ScrapCreateRequest,
     ScrapResponse,
     SearchHit,
     SearchResponse,
-    UrlSummarizeRequest,
-    UrlSummarizeResponse,
     UserKeywordCreateRequest,
     UserKeywordListResponse,
     UserKeywordResponse,
 )
-from .service import RAG_COLLECTION, content_service
-
-_rss_collector = GoogleNewsRSSCollector()
+from .service import RAG_COLLECTION, SEARCH_MIN_SCORE, content_service
 
 logger = logging.getLogger("content.router")
 router = APIRouter(prefix="/api/content", tags=["content"])
+
+
+# ---------------------------------------------------------------------------
+# 산업 카탈로그 — 관심사 설정 화면용
+# ---------------------------------------------------------------------------
+
+
+@router.get("/industries", response_model=list[IndustryItem])
+async def list_industries(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[IndustryItem]:
+    """산업 + 하위 키워드 트리. 관심사 설정 화면이 카드로 그릴 때 사용.
+
+    display_order asc, 각 industry 내부의 하위 키워드도 display_order asc.
+    인증은 사용자별로 다른 데이터를 주지는 않지만 일관성 위해 require.
+    """
+    stmt = (
+        select(Industry)
+        .options(selectinload(Industry.keywords))
+        .order_by(Industry.display_order.asc(), Industry.id.asc())
+    )
+    industries = list((await db.execute(stmt)).scalars().all())
+
+    return [
+        IndustryItem(
+            id=ind.id,
+            name_ko=ind.name_ko,
+            name_en=ind.name_en,
+            display_order=ind.display_order,
+            keywords=[
+                IndustryKeywordItem.model_validate(kw)
+                for kw in sorted(
+                    ind.keywords,
+                    key=lambda k: (k.display_order, k.id),
+                )
+            ],
+        )
+        for ind in industries
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -105,247 +151,123 @@ async def list_news(
     )
 
 
-# ---------------------------------------------------------------------------
-# RSS 직접 피드 — DB 파이프라인 불필요 (실시간 Google News RSS)
-# ---------------------------------------------------------------------------
+# ── 검색 확장 정책 ──────────────────────────────────────────────────────────
+# generalist = 사업이 워낙 광범위해서 회사명만 매칭하면 토픽과 무관한 뉴스가
+# 대량 유입되는 거대 기술 기업. 검색 확장에서는 이 회사명만 단독 매칭하지 않고,
+# 반드시 토픽 키워드(원본 검색어 + 동의어)가 같은 기사에 함께 나와야 통과시킴.
+# 예: "양자컴퓨터" 검색 시 NVIDIA가 들어간 기사는 "quantum"도 같이 있어야 hit.
+_GENERALIST_COMPANIES: set[str] = {
+    "NVIDIA", "IBM", "Microsoft", "Microsoft AI", "Microsoft Copilot",
+    "Google", "Google AI", "Google DeepMind", "Google Quantum AI",
+    "Apple", "Amazon", "Amazon Braket", "Azure AI",
+    "Meta", "Meta Platforms", "Alphabet",
+    "Oracle", "Oracle AI", "Samsung",
+    "Intel", "AMD", "Broadcom", "TSMC", "Taiwan Semiconductor",
+}
 
-# 기본 주요 뉴스 키워드
-_TOP_NEWS_KEYWORD = "주식 투자 경제 금융 코스피"
-
-
-# ---------------------------------------------------------------------------
-# 내부 헬퍼
-# ---------------------------------------------------------------------------
-
-_KO_STOPWORDS = frozenset([
-    "이", "그", "저", "것", "수", "등", "및", "의", "을", "를", "가", "은", "는",
-    "에", "와", "과", "도", "만", "까지", "부터", "에서", "으로", "로", "에게",
-    "한", "하는", "있는", "없는", "되는", "된", "한다", "했다", "하다", "됩니다",
-    "습니다", "입니다", "합니다", "있습니다", "없습니다", "대한", "통해", "위해",
-    "따른", "관련", "대해", "위한", "같은", "이후", "이전", "현재", "오늘", "내일",
-    "지난", "올해", "내년", "지난해", "뉴스", "기자", "기사", "보도",
-])
-
-
-def _extract_keywords_simple(text: str, max_kw: int = 5) -> list[str]:
-    """제목/요약에서 LLM 없이 규칙 기반 키워드 추출."""
-    if not text:
-        return []
-    parts = _re.split(r'[\s,\.!?\[\]()\·…"\'\/\-\%\|&<>]+', text)
-    seen: set[str] = set()
-    keywords: list[str] = []
-    for w in parts:
-        w = w.strip()
-        if len(w) < 2:
-            continue
-        if w in _KO_STOPWORDS:
-            continue
-        lw = w.lower()
-        if lw in seen:
-            continue
-        seen.add(lw)
-        keywords.append(w)
-        if len(keywords) >= max_kw:
-            break
-    return keywords
+# 산업 키워드(label_ko) → 토픽 anchor 영문/한국어 동의어.
+# 시드 데이터의 keyword_en이 한국어 그대로인 경우가 많아 보충용. 미등록 키워드는
+# 원본 검색어만 anchor로 사용. 새 산업 추가 시 여기에 한 줄씩 늘리면 됨.
+_TOPIC_SYNONYMS: dict[str, list[str]] = {
+    "양자컴퓨터": ["양자컴퓨터", "양자 컴퓨터", "양자 컴퓨팅", "양자컴퓨팅",
+                "quantum computing", "quantum computer", "quantum"],
+    "인공지능":   ["인공지능", "AI", "artificial intelligence",
+                "machine learning", "ML", "deep learning"],
+    "반도체":     ["반도체", "semiconductor", "chip", "wafer", "foundry"],
+    "전기차":     ["전기차", "EV", "electric vehicle"],
+    "배터리":     ["배터리", "battery"],
+    "암호화폐":   ["암호화폐", "crypto", "cryptocurrency", "bitcoin", "ethereum"],
+    "클라우드":   ["클라우드", "cloud", "AWS", "Azure", "GCP"],
+    "보안":       ["보안", "security", "cybersecurity", "endpoint"],
+}
 
 
-_VALID_SENTIMENTS = frozenset(["positive", "neutral", "negative"])
-_VALID_RELEVANCES = frozenset(["high", "medium", "low"])
-_VALID_STRATEGIES = frozenset(["value", "growth", "dividend", "momentum"])
+@dataclass
+class ExpandedQuery:
+    """`_expand_query_terms` 결과.
 
-
-def _parse_llm_json(raw: str) -> dict[str, Any]:
-    """LLM 응답에서 JSON 파싱. 코드블록 래퍼·여분 텍스트 처리."""
-    cleaned = _re.sub(r"```(?:json)?\s*([\s\S]*?)```", r"\1", raw.strip()).strip()
-    m = _re.search(r"\{[\s\S]*\}", cleaned)
-    if m:
-        cleaned = m.group(0)
-    parsed = _json.loads(cleaned)
-    if not isinstance(parsed, dict):
-        raise ValueError("LLM JSON 응답이 dict 아님")
-    return parsed
-
-
-def _article_raw_to_rss_item(a: object) -> RssNewsItem:
-    """ArticleRaw → RssNewsItem 변환 헬퍼.
-
-    a는 collectors의 ArticleRaw Pydantic 모델이지만 duck-typing으로 처리
-    (mypy에게는 object). getattr default 패턴 유지.
+    - topic_terms      : 검색어 + (있다면) IndustryKeyword 동의어. 토픽 anchor.
+                         단독으로도 매칭 가능. generalist 회사명과 결합되는 anchor 역할.
+    - specialist_terms : generalist에 안 들어가는 회사명. 단독 매칭 OK.
+    - generalist_terms : 거대 기술 기업 회사명. 토픽 anchor와 동시 등장해야 매칭.
     """
-    title = getattr(a, "title", "")
-    summary = getattr(a, "content", None)
-    pub = getattr(a, "published_at", None)
-    combined_text = f"{title} {summary or ''}".strip()
-    return RssNewsItem(
-        title=title,
-        url=getattr(a, "url", ""),
-        source_name=getattr(a, "source_name", None),
-        published_at=pub.isoformat() if pub is not None else None,
-        summary=summary,
-        keywords=_extract_keywords_simple(combined_text, max_kw=5),
+
+    topic_terms: list[str] = field(default_factory=list)
+    specialist_terms: list[str] = field(default_factory=list)
+    generalist_terms: list[str] = field(default_factory=list)
+
+
+async def _expand_query_terms(db: AsyncSession, query: str) -> ExpandedQuery:
+    """검색어를 토픽 anchor + 회사명(specialist/generalist)로 확장.
+
+    동작:
+      1. query 자체는 topic_terms에 포함
+      2. IndustryKeyword.label_ko 또는 .keyword_en 정확 매칭 시:
+         - label_ko/keyword_en → topic_terms 추가
+         - _TOPIC_SYNONYMS의 매핑된 영문/한국어 변형 → topic_terms 추가
+      3. 매칭된 산업 산하 MasterKeyword들의 MasterKeywordCompany 회사명을
+         generalist 집합과 대조해서 specialist/generalist로 분리
+    """
+    q = query.strip()
+    out = ExpandedQuery()
+    if not q:
+        return out
+
+    topic: set[str] = {q}
+
+    # ── 1) IndustryKeyword 매칭 ─────────────────────────────────────────────
+    ind_stmt = select(IndustryKeyword).where(
+        or_(IndustryKeyword.label_ko == q, IndustryKeyword.keyword_en == q)
     )
+    industry_kws = list((await db.execute(ind_stmt)).scalars().all())
 
+    industry_kw_ids: list[int] = [ik.id for ik in industry_kws]
+    for ik in industry_kws:
+        if ik.label_ko:
+            topic.add(ik.label_ko)
+        if ik.keyword_en:
+            topic.add(ik.keyword_en)
+        for syn in _TOPIC_SYNONYMS.get(ik.label_ko, []):
+            topic.add(syn)
+    # query 자체가 시너지 동의어 맵에 있을 때
+    for syn in _TOPIC_SYNONYMS.get(q, []):
+        topic.add(syn)
 
-@router.get("/news/top", response_model=list[RssNewsItem])
-async def get_top_news(
-    _user: User = Depends(get_current_user),
-    limit: int = Query(8, ge=1, le=20),
-) -> list[RssNewsItem]:
-    """Google News RSS에서 주요 금융 뉴스를 실시간으로 가져온다.
+    out.topic_terms = sorted(topic)
 
-    DB 파이프라인과 무관하게 항상 최신 기사를 반환합니다.
-    """
-    articles = await _rss_collector.collect(_TOP_NEWS_KEYWORD, max_items=limit)
-    return [_article_raw_to_rss_item(a) for a in articles]
+    # ── 2) MasterKeyword 매칭 ────────────────────────────────────────────────
+    mk_where = [MasterKeyword.keyword == q]
+    if industry_kw_ids:
+        mk_where.append(MasterKeyword.industry_keyword_id.in_(industry_kw_ids))
+    mk_stmt = select(MasterKeyword).where(or_(*mk_where))
+    master_kws = list((await db.execute(mk_stmt)).scalars().all())
 
+    master_kw_ids = [mk.id for mk in master_kws]
+    if not master_kw_ids:
+        return out
 
-@router.get("/news/rss-search", response_model=list[RssNewsItem])
-async def rss_search_news(
-    q: str = Query(..., min_length=1, description="검색 키워드"),
-    _user: User = Depends(get_current_user),
-    limit: int = Query(10, ge=1, le=20),
-) -> list[RssNewsItem]:
-    """Google News RSS 키워드 검색.
-
-    DB 파이프라인과 무관하게 키워드로 최신 기사를 검색합니다.
-    """
-    articles = await _rss_collector.collect(q, max_items=limit)
-    return [_article_raw_to_rss_item(a) for a in articles]
-
-
-_SUMMARIZE_PROMPT = """\
-다음 뉴스 기사를 분석하여 JSON 형식으로만 응답해주세요.
-코드블록이나 부연 설명 없이 JSON 객체만 출력하세요.
-
-{{
-  "summary": "투자자 관점 3~5문장 한국어 요약 (마크다운·불릿 없이 자연스러운 문단)",
-  "sentiment": "positive 또는 neutral 또는 negative 중 하나",
-  "investment_relevance": "high 또는 medium 또는 low 중 하나",
-  "strategies": ["value","growth","dividend","momentum"] 중 해당하는 최대 2개 배열 (없으면 []),
-  "keywords": ["핵심 한국어 키워드 최대 5개"],
-  "reliability_score": 기사 신뢰도 0~100 정수
-}}
-
-제목: {title}
-본문:
-{body}
-"""
-
-_SUMMARIZE_TITLE_ONLY_PROMPT = """\
-다음 뉴스 기사 제목을 바탕으로 JSON 형식으로만 응답해주세요. JSON 객체만 출력하세요.
-
-{{
-  "summary": "투자자 관점 2~3문장 한국어 설명 (마크다운 없이 자연스러운 문장)",
-  "sentiment": "positive 또는 neutral 또는 negative 중 하나",
-  "investment_relevance": "high 또는 medium 또는 low 중 하나",
-  "strategies": ["value","growth","dividend","momentum"] 중 해당하는 최대 2개 배열 (없으면 []),
-  "keywords": ["핵심 한국어 키워드 최대 5개"],
-  "reliability_score": 기사 신뢰도 0~100 정수
-}}
-
-제목: {title}
-"""
-
-_NO_LLM_SUMMARY = "AI 요약을 생성할 수 없습니다. (LLM 미설정)"
-
-
-@router.post("/news/summarize-url", response_model=UrlSummarizeResponse)
-async def summarize_url(
-    payload: UrlSummarizeRequest,
-    _user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> UrlSummarizeResponse:
-    """RSS 기사 URL을 받아 본문을 추출하고 LLM으로 한국어 요약 + 분석을 생성합니다.
-
-    - content_extractor로 본문 + og:image + resolved_url 추출 (Google News interstitial 자동 처리)
-    - Google 도메인 이미지 필터링 → DB 기사 이미지로 fallback
-    - LLM에서 JSON 구조 응답 (요약, 감성, 투자관련도, 전략, 키워드, 신뢰도)
-    - LLM 미설정 시 안내 문구 반환
-    """
-    title = (payload.title or "").strip() or "제목 없음"
-
-    # 1. 본문 + 이미지 + 해소된 URL 추출
-    body, image_url, resolved_url = await content_extractor.extract(payload.url)
-
-    # 2. 이미지 없으면 DB에서 resolved_url로 조회
-    if not image_url and resolved_url:
-        try:
-            db_article = await db.scalar(
-                select(NewsArticle).where(
-                    NewsArticle.original_url == resolved_url,
-                    NewsArticle.image_url.isnot(None),
-                )
-            )
-            if db_article and db_article.image_url:
-                image_url = db_article.image_url
-                logger.debug(
-                    "content.summarize_url.db_image_used",
-                    extra={"resolved_url": resolved_url[:200]},
-                )
-        except Exception as exc:
-            logger.debug("content.summarize_url.db_image_lookup_failed", extra={"err": str(exc)})
-
-    # 3. LLM 요약 + 분석 (JSON 응답)
-    ai_summary = _NO_LLM_SUMMARY
-    sentiment: str | None = None
-    investment_relevance: str | None = None
-    strategies: list[str] = []
-    keywords: list[str] = []
-    reliability_score: int | None = None
-
-    if llm.configured:
-        try:
-            if body:
-                prompt = _SUMMARIZE_PROMPT.format(title=title, body=body[:4000])
-            else:
-                prompt = _SUMMARIZE_TITLE_ONLY_PROMPT.format(title=title)
-
-            resp = await llm.chat(
-                [Message(role=MessageRole.USER, content=prompt)],
-                use_case="content",
-                max_tokens=800,
-                temperature=0.4,
-            )
-            raw_text = resp.text.strip()
-
-            # JSON 파싱 시도
-            try:
-                parsed = _parse_llm_json(raw_text)
-                ai_summary = str(parsed.get("summary", "")).strip() or raw_text
-                raw_sentiment = str(parsed.get("sentiment", "")).lower()
-                sentiment = raw_sentiment if raw_sentiment in _VALID_SENTIMENTS else None
-                raw_relevance = str(parsed.get("investment_relevance", "")).lower()
-                investment_relevance = raw_relevance if raw_relevance in _VALID_RELEVANCES else None
-                strategies = [
-                    s for s in (parsed.get("strategies") or []) if s in _VALID_STRATEGIES
-                ][:2]
-                keywords = [str(k).strip() for k in (parsed.get("keywords") or []) if k][:5]
-                raw_score = parsed.get("reliability_score")
-                if raw_score is not None:
-                    try:
-                        reliability_score = max(0, min(100, int(raw_score)))
-                    except (TypeError, ValueError):
-                        reliability_score = None
-            except (_json.JSONDecodeError, KeyError, TypeError):
-                # JSON 파싱 실패 시 원문을 요약으로 사용
-                ai_summary = raw_text
-
-        except Exception as exc:
-            logger.warning("content.summarize_url_llm_failed", extra={"err": str(exc)})
-            ai_summary = "요약 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
-
-    return UrlSummarizeResponse(
-        title=title,
-        ai_summary=ai_summary,
-        image_url=image_url,
-        original_url=payload.url,
-        sentiment=sentiment,
-        investment_relevance=investment_relevance,
-        strategies=strategies,
-        keywords=keywords,
-        reliability_score=reliability_score,
+    # ── 3) MasterKeywordCompany → specialist / generalist 분리 ──────────────
+    co_stmt = select(MasterKeywordCompany).where(
+        MasterKeywordCompany.master_keyword_id.in_(master_kw_ids)
     )
+    companies = list((await db.execute(co_stmt)).scalars().all())
+
+    specialist: set[str] = set()
+    generalist: set[str] = set()
+    for c in companies:
+        name = (c.company_name or "").strip()
+        if not name:
+            continue
+        bucket = generalist if name in _GENERALIST_COMPANIES else specialist
+        bucket.add(name)
+        # 한국어 회사명도 같은 버킷에 추가
+        ko = (c.company_name_ko or "").strip()
+        if ko:
+            bucket.add(ko)
+
+    out.specialist_terms = sorted(specialist)
+    out.generalist_terms = sorted(generalist)
+    return out
 
 
 # /news/search 를 /news/{news_id} 보다 먼저 선언 (path resolution 우선)
@@ -353,53 +275,259 @@ async def summarize_url(
 async def search_news(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-    q: str = Query(..., min_length=2, description="검색어"),
-    top_k: int = Query(10, ge=1, le=50),
+    q: str = Query(..., min_length=1, description="검색어"),
+    top_k: int = Query(15, ge=1, le=50),
+    visible_only: bool = Query(
+        False,
+        description=(
+            "True면 is_visible=True(노출 임계값 이상) 기사만. "
+            "기본 False — 파이프라인이 수집한 전체 풀에서 검색해서 "
+            "사용자가 임의 키워드로도 결과를 받을 수 있게 함."
+        ),
+    ),
+    min_score: int = Query(
+        SEARCH_MIN_SCORE,
+        ge=0,
+        le=100,
+        description=(
+            "reliability_score 최저값. 기본 = CONTENT_SEARCH_MIN_SCORE env "
+            "(현재 40). 경제/투자와 무관한 저품질 기사를 검색에서 배제하기 위한 필터. "
+            "AI 처리 큐(RAG 임계값)와 분리돼 있어 검색 풀만 조정 가능."
+        ),
+    ),
 ) -> SearchResponse:
-    """기사 의미 기반 검색. Chroma에서 청크 검색 후 DB 메타데이터로 augment."""
-    docs = await vector_store.search(RAG_COLLECTION, query=q, top_k=top_k)
-    if not docs:
-        return SearchResponse(query=q, total=0, results=[])
+    """기사 하이브리드 검색.
 
-    # 청크 문서 → article_id 집계 → DB row 한 번에 가져오기
-    article_ids: list[int] = []
+    1. Chroma 시맨틱 검색으로 article_id 후보 추출
+    2. DB에서 title/summary/content/ai_keywords ILIKE 키워드 매칭
+    3. 두 결과를 article_id로 dedupe·머지 (시맨틱 점수가 더 높음)
+    4. reliability_score >= min_score 인 행만 최종 반환 — 비경제/저품질 차단
+
+    기본은 visibility 필터 OFF, min_score=45 (RAG 임계값).
+    """
+    # ── 1) 시맨틱 (Chroma cosine distance 임계값 필터) ──────────────────────
+    # distance > SEMANTIC_DISTANCE_THRESHOLD 인 결과는 "그나마 가까운 무관 매칭"
+    # 으로 보고 버림. cosine distance: 0.0=동일, 1.0=직교(무관). 0.55는 보수적.
+    SEMANTIC_DISTANCE_THRESHOLD = 0.55
+    semantic_ids: list[int] = []
     chunk_by_article: dict[int, str] = {}
     score_by_article: dict[int, float] = {}
+    try:
+        docs = await vector_store.search(RAG_COLLECTION, query=q, top_k=top_k)
+    except Exception as exc:
+        logger.warning("content.search.semantic_failed", extra={"err": str(exc)})
+        docs = []
+    dropped_distant = 0
     for d in docs:
-        aid = int(d.metadata.get("article_id", 0) or 0)
-        if not aid:
+        # 거리 너무 멀면 drop — 검색어와 진짜 무관한 기사가 끌려오는 거 방지
+        if d.distance is not None and d.distance > SEMANTIC_DISTANCE_THRESHOLD:
+            dropped_distant += 1
             continue
-        if aid not in chunk_by_article:
-            article_ids.append(aid)
-            chunk_by_article[aid] = d.text
-            score_by_article[aid] = 1.0 / (1 + len(article_ids))  # rough rank
-    if not article_ids:
+        aid = int(d.metadata.get("article_id", 0) or 0)
+        if not aid or aid in chunk_by_article:
+            continue
+        semantic_ids.append(aid)
+        chunk_by_article[aid] = d.text
+        # distance가 작을수록 점수 높게: 1 - distance 사용 (1.0 ~ 0.45 범위)
+        sim = (1.0 - d.distance) if d.distance is not None else 0.6
+        score_by_article[aid] = float(sim)
+    if dropped_distant:
+        logger.info(
+            "content.search.distant_semantic_dropped",
+            extra={"q": q, "dropped": dropped_distant, "kept": len(semantic_ids)},
+        )
+
+    # ── 2) 키워드 (DB ILIKE) — 토픽 anchor + specialist/generalist 분리 ─────
+    # 한국어 키워드는 영문 기사를 못 잡으므로 IndustryKeyword 시드 데이터를 따라
+    # 회사명까지 확장. 단, 거대 기술 기업(NVIDIA, IBM, MSFT 등)은 회사명만으로는
+    # 토픽 무관 뉴스가 대량 유입되므로 토픽 anchor와 동시 등장(AND)해야 통과시킴.
+    expanded = await _expand_query_terms(db, q)
+
+    _FIELDS = (
+        NewsArticle.title_translated,
+        NewsArticle.title_original,
+        NewsArticle.summary_ko,
+        NewsArticle.content_translated,
+        NewsArticle.content,
+        NewsArticle.ai_keywords,
+        NewsArticle.related_keywords,
+    )
+
+    import re as _re
+
+    def _is_short_acronym(term: str) -> bool:
+        """4자 이하 영문 약어 — 단어 경계 매칭이 필요한 케이스.
+
+        예) "AI", "ML", "GPU", "LLM" → AIRBUS/WILLIAM/SHGPU 같은 substring 매칭
+        방지. 한글 키워드("양자")는 단어 경계 개념이 약해서 단순 ILIKE 사용.
+        """
+        return (
+            1 <= len(term) <= 4
+            and term.isascii()
+            and any(c.isalpha() for c in term)
+        )
+
+    def _any_field_ilike(terms: list[str]):
+        """terms 중 하나라도 모든 필드 중 하나에 매칭되면 True (단일 SQL OR 그룹).
+
+        짧은 영문 약어는 PostgreSQL `~*` 정규식 + `\y` 단어 경계로 매칭해서
+        AI→AIRBUS, ML→WILLIAM 같은 false positive 방지.
+        """
+        conds = []
+        for term in terms:
+            if not term:
+                continue
+            if _is_short_acronym(term):
+                pattern = rf"\y{_re.escape(term)}\y"
+                conds.extend(f.op("~*")(pattern) for f in _FIELDS)
+            else:
+                pat = f"%{term}%"
+                conds.extend(f.ilike(pat) for f in _FIELDS)
+        return or_(*conds) if conds else None
+
+    topic_match = _any_field_ilike(expanded.topic_terms)
+    specialist_match = _any_field_ilike(expanded.specialist_terms)
+    generalist_match = _any_field_ilike(expanded.generalist_terms)
+
+    # 최종 텍스트 매칭 OR 그룹:
+    #   topic         (단독 OK — 토픽이 본문에 직접 나옴)
+    #   OR specialist (단독 OK — 전문 기업명이 본문에 나옴)
+    #   OR (generalist AND topic)  — 거대 기업명은 토픽과 동시 등장해야 함
+    text_clauses = []
+    if topic_match is not None:
+        text_clauses.append(topic_match)
+    if specialist_match is not None:
+        text_clauses.append(specialist_match)
+    if generalist_match is not None and topic_match is not None:
+        text_clauses.append(and_(generalist_match, topic_match))
+
+    if not text_clauses:
+        # 빈 검색어 방어 — 정상 흐름에선 도달 안 함 (q.min_length=1)
+        text_clauses = [NewsArticle.id.is_(None)]
+
+    keyword_where = [
+        NewsArticle.reliability_score >= min_score,
+        or_(*text_clauses),
+    ]
+    if visible_only:
+        keyword_where.insert(0, NewsArticle.is_visible.is_(True))
+
+    if (
+        len(expanded.topic_terms) > 1
+        or expanded.specialist_terms
+        or expanded.generalist_terms
+    ):
+        logger.info(
+            "content.search.query_expanded",
+            extra={
+                "q": q,
+                "topic": expanded.topic_terms,
+                "specialist_n": len(expanded.specialist_terms),
+                "generalist_n": len(expanded.generalist_terms),
+            },
+        )
+
+    keyword_stmt = (
+        select(NewsArticle)
+        .where(*keyword_where)
+        .order_by(desc(NewsArticle.published_at))
+        .limit(top_k * 3)  # 확장 검색이라 후보를 더 넓게, 최종 sort 후 top_k로 trim
+    )
+    keyword_rows = (await db.execute(keyword_stmt)).scalars().all()
+
+    # ── 3) Merge ─────────────────────────────────────────────────────────────
+    # ILIKE 매칭은 검색어가 실제 텍스트에 등장하는 것이므로 정확도 보장 → 0.7 점수
+    # 시맨틱은 distance에 따라 0.45~1.0 — distance 작으면 시맨틱이 ILIKE보다 위
+    all_ids: list[int] = list(semantic_ids)
+    seen: set[int] = set(semantic_ids)
+    for art in keyword_rows:
+        if art.id in seen:
+            # 양쪽 다 매칭된 기사는 시맨틱 점수에 보너스 + 0.15
+            score_by_article[art.id] = min(1.0, score_by_article.get(art.id, 0.6) + 0.15)
+            continue
+        all_ids.append(art.id)
+        seen.add(art.id)
+        score_by_article[art.id] = 0.7
+        snippet = art.summary_ko or art.content_translated or art.content or art.title_original or ""
+        chunk_by_article[art.id] = snippet[:300]
+
+    if not all_ids:
         return SearchResponse(query=q, total=0, results=[])
 
-    rows = (
-        await db.execute(select(NewsArticle).where(NewsArticle.id.in_(article_ids)))
-    ).scalars().all()
-    by_id = {a.id: a for a in rows}
+    # 시맨틱 후보 중 DB lookup이 필요한 ID만 추가 조회
+    need_lookup = [aid for aid in semantic_ids if aid not in {a.id for a in keyword_rows}]
+    extra_rows: list[NewsArticle] = []
+    if need_lookup:
+        extra_rows = list(
+            (await db.execute(select(NewsArticle).where(NewsArticle.id.in_(need_lookup))))
+            .scalars()
+            .all()
+        )
+    by_id: dict[int, NewsArticle] = {a.id: a for a in keyword_rows}
+    for a in extra_rows:
+        by_id.setdefault(a.id, a)
 
     hits: list[SearchHit] = []
-    for aid in article_ids:
+    low_quality_dropped = 0
+    for aid in all_ids:
         a = by_id.get(aid)
-        if a is None or not a.is_visible:
+        if a is None:
+            continue
+        if visible_only and not a.is_visible:
+            continue
+        # reliability 필터 — 시맨틱으로 끌려온 경제 무관 저품질 기사 차단
+        if a.reliability_score < min_score:
+            low_quality_dropped += 1
             continue
         hits.append(
             SearchHit(
                 article_id=a.id,
-                score=score_by_article[aid],
+                score=score_by_article.get(aid, 0.0),
                 title=a.title_translated or a.title_original,
                 summary=a.summary_ko,
                 source_name=a.source_name,
                 url=a.original_url,
                 image_url=a.image_url,
-                matched_chunk=chunk_by_article[aid][:300],
+                matched_chunk=chunk_by_article.get(aid, "")[:300],
                 published_at=a.published_at,
             )
         )
+    if low_quality_dropped:
+        logger.info(
+            "content.search.low_quality_dropped",
+            extra={"q": q, "min_score": min_score, "dropped": low_quality_dropped},
+        )
+
+    # 점수 내림차순 정렬
+    hits.sort(key=lambda h: h.score, reverse=True)
+    hits = hits[:top_k]
     return SearchResponse(query=q, total=len(hits), results=hits)
+
+
+# ---------------------------------------------------------------------------
+# 실시간 토픽 뉴스 — SearchScreen 상단 탭(환율/금리/코스피/나스닥)용
+# 파이프라인 우회: 신뢰도 필터/DB 저장 없이 RSS + OpenAI 요약만 즉석 수행
+# ---------------------------------------------------------------------------
+
+
+# /news/live-topics 를 /news/{news_id} 보다 먼저 선언
+@router.get("/news/live-topics", response_model=LiveTopicNewsResponse)
+async def live_topic_news(
+    user: User = Depends(get_current_user),
+    topic: str = Query(..., min_length=1, max_length=80, description="탭 키워드"),
+    limit: int = Query(6, ge=1, le=10),
+) -> LiveTopicNewsResponse:
+    """주어진 토픽의 캐시된 뉴스를 즉시 반환.
+
+    백그라운드 잡(`refresh_live_news_tick`)이 10분마다 Redis를 갱신하므로
+    탭 클릭 시 거의 즉시 응답한다. 캐시 미스(첫 부팅 직후 등)에만 한 번
+    라이브 fetch로 폴백 — 그 사이 다른 요청은 lock으로 wait.
+    """
+    items, _ = await get_cached_topic_news(topic, limit=limit)
+    return LiveTopicNewsResponse(
+        topic=topic,
+        items=[LiveTopicNewsItem(**it) for it in items],
+    )
 
 
 @router.get("/news/{news_id}", response_model=NewsArticleResponse)
@@ -408,9 +536,11 @@ async def get_news(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> NewsArticleResponse:
-    """기사 상세 조회. is_visible=False면 404."""
+    """기사 상세 조회. is_visible 무관 — 검색이 hidden 기사도 노출하므로
+    상세 클릭 시 404 안 나도록 visibility 체크 제거. 행이 존재하면 무조건 반환.
+    """
     article = await db.scalar(select(NewsArticle).where(NewsArticle.id == news_id))
-    if article is None or not article.is_visible:
+    if article is None:
         raise NotFoundError("뉴스를 찾을 수 없습니다")
     return NewsArticleResponse.model_validate(article)
 
@@ -444,7 +574,7 @@ async def add_scrap(
 
     # core.contracts.ArticleId는 NewType[int] — 그냥 int 전달
     await event_bus.publish(
-        ScrapAddedEvent(user_id=user.id, article_id=scrap.article_id)
+        ScrapAddedEvent(user_id=user.id, article_id=scrap.article_id)  # type: ignore[arg-type]
     )
     logger.info("content.scrap_added", extra={"user_id": user.id, "article_id": scrap.article_id})
 
@@ -544,12 +674,146 @@ async def remove_my_keyword(
 #       현재는 인증된 사용자면 호출 가능 (mentors는 아직 role 분리 없음).
 
 
+@router.post("/admin/refresh-images")
+async def refresh_images(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200, description="이번 호출에서 재추출할 기사 수"),
+) -> dict:
+    """image_url IS NULL 인 기사에 대해 ContentExtractor를 다시 돌려 이미지 backfill.
+
+    동작:
+      1. image_url이 비어있는 기사 `limit`개 선택 (오래된 것부터)
+      2. 각 기사 original_url에 대해 content_extractor.extract() 호출
+         (publisher 페이지 fetch + JSON-LD/og:image/article img 추출)
+      3. 추출 성공한 경우만 image_url UPDATE
+      4. 추출 실패한 행은 그냥 두고 다음 호출에서 재시도 가능
+
+    각 호출은 extractor 내부 세마포어(max_concurrency=6)로 동시 HTTP 6개로 제한.
+    호출 한 번에 limit=50이면 ~30초 정도 걸림 (사이트별 응답 시간 따라).
+    """
+    from .extractor import content_extractor
+
+    stmt = (
+        select(NewsArticle)
+        .where(
+            (NewsArticle.image_url.is_(None)) | (NewsArticle.image_url == ""),
+        )
+        .order_by(NewsArticle.id.asc())
+        .limit(limit)
+    )
+    rows = list((await db.execute(stmt)).scalars().all())
+    if not rows:
+        return {"scanned": 0, "updated": 0}
+
+    # 병렬 fetch — extractor 내부 세마포어가 max 6개 제한
+    async def _one(art: NewsArticle):
+        try:
+            _body, image_url, _resolved = await content_extractor.extract(art.original_url)
+            return art, image_url
+        except Exception:
+            return art, None
+
+    outcomes = await asyncio.gather(*[_one(a) for a in rows])
+
+    updated = 0
+    for art, new_image in outcomes:
+        if new_image:
+            art.image_url = new_image
+            updated += 1
+    await db.commit()
+    logger.info(
+        "content.admin.images_refreshed",
+        extra={"user_id": user.id, "scanned": len(rows), "updated": updated},
+    )
+    return {"scanned": len(rows), "updated": updated}
+
+
+@router.post("/admin/process-ai-now")
+async def process_ai_now(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=200, description="이번 호출에서 처리할 pending 최대"),
+    parallelism: int = Query(10, ge=1, le=20, description="동시 LLM 호출 수"),
+) -> dict:
+    """다음 5분 tick을 기다리지 않고 pending 큐에서 batch 처리 즉시 실행.
+
+    backfill 직후 또는 수집기 첫 가동 직후 큐가 폭발했을 때 사용. 호출 한 번에
+    `limit`만큼 처리 시도 — 결과 반환되면 다시 호출하면 됨. 병렬 호출은 OK
+    (각 호출이 자기 batch를 'processing'으로 즉시 마킹해서 lock 효과).
+    """
+    stats = await content_service.process_pending_ai(
+        db, limit=limit, parallelism=parallelism
+    )
+    logger.info("content.admin.ai_processed_now", extra={"user_id": user.id, **stats})
+    return stats
+
+
+@router.post("/admin/make-all-visible")
+async def make_all_visible(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """수집된 모든 기사를 is_visible=True로 일괄 전환 (점수 무관).
+
+    임계값 기반 큐레이션을 우회하고 싶을 때 사용. 검색·피드에서 모든 기사를
+    그대로 노출하게 됨. 신규 수집분은 여전히 임계값 적용되므로, 새 기사를
+    계속 보이게 하려면 CONTENT_VISIBLE_THRESHOLD를 0으로 낮추는 게 더 영속적.
+    """
+    result = await db.execute(
+        sa_update(NewsArticle)
+        .where(NewsArticle.is_visible.is_(False))
+        .values(is_visible=True)
+    )
+    promoted = result.rowcount or 0
+    await db.commit()
+    total = int(
+        (
+            await db.execute(select(func.count()).select_from(NewsArticle))
+        ).scalar_one()
+        or 0
+    )
+    logger.info(
+        "content.admin.make_all_visible",
+        extra={"user_id": user.id, "promoted": promoted, "total": total},
+    )
+    return {"promoted": promoted, "total_visible": total}
+
+
+@router.post("/admin/reapply-thresholds")
+async def reapply_thresholds(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """현재 환경변수 임계값을 기존 모든 기사에 다시 적용 (점수 재계산 X).
+
+    is_visible / is_rag_eligible / ai_processing_status('skipped'→'pending')만
+    갱신. 임계값을 .env에서 바꾼 직후 한 번 호출하면 그동안 'skipped'에 묶여
+    있던 행들이 즉시 AI 큐로 승격되고, 노출 가능 풀도 즉시 늘어남.
+
+    Response:
+        {
+            "thresholds": {"visible": N, "rag": M},
+            "promoted_skipped_to_pending": int,
+            "visible_now": int,
+            "rag_eligible_now": int,
+            "ai_pending_now": int
+        }
+    """
+    stats = await content_service.reapply_thresholds(db)
+    logger.info(
+        "content.admin.thresholds_reapplied",
+        extra={"user_id": user.id, **stats},
+    )
+    return stats
+
+
 @router.post("/admin/retry-failed")
 async def retry_failed_ai(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500, description="한 번에 reset할 최대 행 수"),
-) -> dict[str, Any]:
+) -> dict:
     """ai_processing_status='failed' 기사를 'pending'으로 되돌림.
 
     다음 ai_process_tick(5분 간격)이 자동 재처리. 즉시 처리는 안 함 —

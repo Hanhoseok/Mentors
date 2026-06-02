@@ -9,12 +9,13 @@ settings.finnhub_api_key가 없으면 비활성.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
 from core.config import settings
 
+from ..pipeline_utils import is_acceptable_image_url
 from ..schemas import ArticleRaw
 from .base import BaseCollector
 
@@ -40,7 +41,7 @@ class FinnhubCollector(BaseCollector):
         if not (keyword.isupper() and 1 < len(keyword) <= 5):
             return []
 
-        to = datetime.now(UTC).date()
+        to = datetime.now(timezone.utc).date()
         frm = to - timedelta(days=_LOOKBACK_DAYS)
         params = {
             "symbol": keyword,
@@ -69,7 +70,13 @@ class FinnhubCollector(BaseCollector):
             published_at: datetime | None = None
             ts = item.get("datetime")
             if isinstance(ts, (int, float)):
-                published_at = datetime.fromtimestamp(int(ts), tz=UTC)
+                published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc)
+            raw_image = (item.get("image") or "").strip() or None
+            # Finnhub의 image 필드는 publisher의 og:image를 자기들이 추출한 거지만
+            # Yahoo Finance 같은 aggregator 출처는 generic 로고가 들어오는 경우가
+            # 많음 — 공용 필터로 한 번 거름.
+            if raw_image and not is_acceptable_image_url(raw_image):
+                raw_image = None
             out.append(
                 ArticleRaw(
                     title=headline,
@@ -78,7 +85,7 @@ class FinnhubCollector(BaseCollector):
                     source_name=(item.get("source") or "").strip() or "Finnhub",
                     source_channel="api",
                     published_at=published_at,
-                    image_url=(item.get("image") or "").strip() or None,
+                    image_url=raw_image,
                     language="en",
                     triggered_by_keywords=[keyword],
                 )

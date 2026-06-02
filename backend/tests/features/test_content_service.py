@@ -1,6 +1,6 @@
 """콘텐츠 동 ContentService._persist_articles dedup 로직 단위 테스트.
 
-PR-II에서 도입된 2-stage dedup:
+PR-Ⅱ에서 도입된 2-pass dedup:
   1차: raw.url canonical로 NewsArticle 매칭 → fetch 자체를 회피 (외부 호출 절약)
   2차: ContentExtractor.extract()가 돌려준 resolved_url canonical로 다시 매칭
        → Google News interstitial 등 같은 publisher 기사를 가리키는 서로 다른
@@ -15,7 +15,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-
 from features.content import pipeline_utils as pu
 from features.content.models import ArticleKeyword, MasterKeyword, NewsArticle
 from features.content.schemas import ArticleRaw

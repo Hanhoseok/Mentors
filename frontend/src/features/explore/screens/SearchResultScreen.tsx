@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,8 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
-import { rssSearchNews } from '@/features/explore/content/api';
-import type { RssNewsItem } from '@/features/explore/content/types';
+import { searchNews } from '@/features/explore/content/api';
+import type { SearchHit } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
 
 type RouteProps = RouteProp<AppStackParamList, 'SearchResult'>;
@@ -36,7 +37,7 @@ export function SearchResultScreen() {
 
   const [inputText, setInputText] = useState(initialQuery);
   const [activeQuery, setActiveQuery] = useState(initialQuery);
-  const [results, setResults] = useState<RssNewsItem[]>([]);
+  const [results, setResults] = useState<SearchHit[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
 
@@ -46,15 +47,15 @@ export function SearchResultScreen() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  // activeQuery가 바뀔 때마다 검색
+  // activeQuery가 바뀔 때마다 검색 (시맨틱 + 키워드 하이브리드)
   useEffect(() => {
     if (!activeQuery.trim()) return;
     setIsLoading(true);
     setHasSearched(false);
-    rssSearchNews(activeQuery.trim(), 15)
+    searchNews(activeQuery.trim(), 20)
       .then((data) => {
         if (mountedRef.current) {
-          setResults(data);
+          setResults(data.results);
           setHasSearched(true);
         }
       })
@@ -81,12 +82,16 @@ export function SearchResultScreen() {
     }
   }
 
-  function openSummary(item: RssNewsItem) {
+  function openSummary(item: SearchHit) {
     navigation.navigate('RssArticleSummary', {
+      article_id: item.article_id,
       title: item.title,
       url: item.url,
       source_name: item.source_name,
       published_at: item.published_at,
+      image_url: item.image_url,
+      summary: item.summary,
+      content: item.matched_chunk,
     });
   }
 
@@ -141,43 +146,47 @@ export function SearchResultScreen() {
 
           {results.map((item, index) => (
             <Pressable
-              key={`${item.url}-${index}`}
+              key={`${item.article_id}-${index}`}
               onPress={() => openSummary(item)}
               style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
             >
-              {/* 상단: 출처 뱃지 + 시간 */}
-              <View style={styles.cardTop}>
-                <View style={styles.badgeRow}>
-                  {item.source_name ? (
-                    <View style={styles.sourceBadge}>
-                      <Text style={styles.sourceBadgeText}>{item.source_name}</Text>
-                    </View>
-                  ) : null}
-                  <View style={styles.rssBadge}>
-                    <Text style={styles.rssBadgeText}>구글 뉴스</Text>
-                  </View>
-                </View>
-                <Text style={styles.timeText}>{formatTime(item.published_at)}</Text>
-              </View>
-
-              {/* 제목 */}
-              <Text numberOfLines={3} style={styles.title}>
-                {item.title}
-              </Text>
-
-              {/* 키워드 */}
-              {item.keywords && item.keywords.length > 0 ? (
-                <View style={styles.keywordRow}>
-                  {item.keywords.slice(0, 4).map((kw, i) => (
-                    <View key={`${kw}-${i}`} style={styles.keywordChip}>
-                      <Text style={styles.keywordChipText}>{kw}</Text>
-                    </View>
-                  ))}
-                </View>
+              {/* 썸네일 이미지 */}
+              {item.image_url ? (
+                <Image
+                  source={{ uri: item.image_url }}
+                  style={styles.thumb}
+                  resizeMode="cover"
+                />
               ) : null}
 
-              {/* 링크 힌트 */}
-              <Text style={styles.linkHint}>AI 요약 보기 →</Text>
+              <View style={styles.cardBody}>
+                {/* 상단: 출처 뱃지 + 시간 */}
+                <View style={styles.cardTop}>
+                  <View style={styles.badgeRow}>
+                    {item.source_name ? (
+                      <View style={styles.sourceBadge}>
+                        <Text style={styles.sourceBadgeText}>{item.source_name}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.timeText}>{formatTime(item.published_at)}</Text>
+                </View>
+
+                {/* 제목 */}
+                <Text numberOfLines={3} style={styles.title}>
+                  {item.title}
+                </Text>
+
+                {/* 요약 미리보기 */}
+                {item.summary ? (
+                  <Text numberOfLines={2} style={styles.summary}>
+                    {item.summary}
+                  </Text>
+                ) : null}
+
+                {/* 링크 힌트 */}
+                <Text style={styles.linkHint}>AI 요약 보기 →</Text>
+              </View>
             </Pressable>
           ))}
         </ScrollView>
@@ -268,10 +277,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   listContent: {
+    alignSelf: 'center',         // 웹에서 가운데 정렬
     gap: 10,
+    maxWidth: 800,                // 와이드 스크린에서 카드가 무한정 늘어나지 않도록
     paddingBottom: 32,
     paddingHorizontal: 16,
     paddingTop: 16,
+    width: '100%',
   },
   resultCount: {
     color: colors.muted,
@@ -284,11 +296,20 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 16,
     borderWidth: 1,
-    gap: 10,
-    padding: 16,
+    overflow: 'hidden',
   },
   cardPressed: {
     opacity: 0.88,
+  },
+  thumb: {
+    aspectRatio: 16 / 9,         // 원본 비율 유지 (16:9). 카드 가로폭이 800px로
+                                 // 캡돼 있으므로 세로는 최대 450px 정도로 떨어짐.
+    backgroundColor: '#EDF0ED',
+    width: '100%',
+  },
+  cardBody: {
+    gap: 10,
+    padding: 16,
   },
   cardTop: {
     alignItems: 'center',
@@ -314,19 +335,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
   },
-  rssBadge: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
-    borderRadius: 4,
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  rssBadgeText: {
-    color: colors.primary,
-    fontSize: 10,
-    fontWeight: '700',
-  },
   timeText: {
     color: colors.muted,
     flexShrink: 0,
@@ -338,24 +346,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 22,
   },
-  keywordRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 5,
-  },
-  keywordChip: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary,
-    borderRadius: 20,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  keywordChipText: {
-    color: colors.primary,
-    fontSize: 11,
-    fontWeight: '600',
+  summary: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
   },
   linkHint: {
     color: colors.primary,

@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from core.contracts import MentorStrategy
 
+
 # ---------------------------------------------------------------------------
 # 수집 원본 (내부 전용 — 외부 노출 X)
 # ---------------------------------------------------------------------------
@@ -121,7 +122,7 @@ class NewsArticleResponse(BaseModel):
             return [p.strip() for p in str(raw).split(",") if p.strip()][:5]
 
     @model_validator(mode="after")
-    def _populate_display(self) -> NewsArticleResponse:
+    def _populate_display(self) -> "NewsArticleResponse":
         self.title_original = _decode_entities(self.title_original) or self.title_original
         self.title_translated = _decode_entities(self.title_translated)
         self.summary_ko = _decode_entities(self.summary_ko)
@@ -225,60 +226,64 @@ class UserKeywordListResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# RSS 직접 수집 결과 (파이프라인 불필요 — 실시간 외부 피드)
+# 실시간 토픽 뉴스 — /api/content/news/live-topics
+# 파이프라인 우회. 신뢰도 필터/DB 저장 없음. Google News RSS + OpenAI 요약.
 # ---------------------------------------------------------------------------
 
 
-class RssNewsItem(BaseModel):
-    """Google News RSS에서 직접 가져온 뉴스 아이템. DB 저장 없음."""
-
+class LiveTopicNewsItem(BaseModel):
     title: str
     url: str
     source_name: str | None = None
-    published_at: str | None = None   # ISO-8601 문자열
-    summary: str | None = None        # RSS description (HTML 포함 가능)
-    keywords: list[str] = Field(default_factory=list)  # 제목에서 추출한 키워드
+    published_at: datetime | None = None
+    language: str = "ko"
+    summary_ko: str
+    image_url: str | None = None
+    keywords: list[str] = Field(default_factory=list)
+
+
+class LiveTopicNewsResponse(BaseModel):
+    topic: str
+    items: list[LiveTopicNewsItem]
 
 
 # ---------------------------------------------------------------------------
-# URL 기반 즉석 AI 요약 — /api/content/news/summarize-url
+# 산업 분류 + 하위 키워드 — /api/content/industries
 # ---------------------------------------------------------------------------
 
 
-class UrlSummarizeRequest(BaseModel):
-    """RSS 기사 URL 즉석 요약 요청."""
+class IndustryKeywordItem(BaseModel):
+    id: int
+    label_ko: str
+    keyword_en: str
+    display_order: int
 
-    url: str
-    title: str | None = None   # RSS에서 이미 알고 있는 제목 (hint)
+    model_config = {"from_attributes": True}
 
 
-class UrlSummarizeResponse(BaseModel):
-    """LLM이 생성한 요약 + 본문에서 추출한 이미지 + AI 분석 결과."""
+class IndustryItem(BaseModel):
+    id: int
+    name_ko: str
+    name_en: str
+    display_order: int
+    keywords: list[IndustryKeywordItem] = Field(default_factory=list)
 
-    title: str
-    ai_summary: str            # LLM 생성 한국어 요약
-    image_url: str | None      # 기사 페이지에서 추출한 og:image 등
-    original_url: str
-    # AI 분석 필드 (LLM JSON 응답에서 파싱)
-    sentiment: str | None = None             # positive | neutral | negative
-    investment_relevance: str | None = None  # high | medium | low
-    strategies: list[str] = Field(default_factory=list)   # value, growth, dividend, momentum
-    keywords: list[str] = Field(default_factory=list)     # 핵심 키워드 (한국어)
-    reliability_score: int | None = None     # 0~100
+    model_config = {"from_attributes": True}
 
 
 __all__ = [
     "AIProcessingResult",
     "ArticleRaw",
+    "IndustryItem",
+    "IndustryKeywordItem",
+    "LiveTopicNewsItem",
+    "LiveTopicNewsResponse",
     "NewsArticleResponse",
     "NewsListResponse",
-    "RssNewsItem",
     "ScrapCreateRequest",
     "ScrapResponse",
     "SearchHit",
     "SearchResponse",
-    "UrlSummarizeRequest",
-    "UrlSummarizeResponse",
     "UserKeywordCreateRequest",
     "UserKeywordListResponse",
     "UserKeywordResponse",
