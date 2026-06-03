@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
+import time
 import zipfile
 from dataclasses import dataclass
 from io import BytesIO
@@ -16,6 +18,7 @@ logger = logging.getLogger("market_data.dart")
 
 _DART_CORP_CODE_URL = "https://opendart.fss.or.kr/api/corpCode.xml"
 _TIMEOUT_S = 8.0
+_STOCK_CACHE_TTL_S = 60 * 60 * 24
 _STOCK_CODE_PATTERN = re.compile(r"^\d{6}$")
 
 
@@ -30,6 +33,8 @@ class DartStock:
 class DartMarketDataClient:
     def __init__(self) -> None:
         self._stocks: list[DartStock] | None = None
+        self._stocks_loaded_at: float | None = None
+        self._lock = asyncio.Lock()
 
     async def search_stocks(self, query: str, *, limit: int = 5) -> list[DartStock]:
         if not query.strip() or not settings.dart_api_key:
@@ -47,23 +52,34 @@ class DartMarketDataClient:
         return [*exact, *partial][:limit]
 
     async def _load_stocks(self) -> list[DartStock]:
-        if self._stocks is not None:
+        if self._is_cache_fresh():
+            assert self._stocks is not None
             return self._stocks
 
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
-                response = await client.get(
-                    _DART_CORP_CODE_URL,
-                    params={"crtfc_key": settings.dart_api_key},
-                )
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
-            logger.warning("dart.corp_code_failed", extra={"err": str(exc)})
-            self._stocks = []
-            return []
+        async with self._lock:
+            if self._is_cache_fresh():
+                assert self._stocks is not None
+                return self._stocks
 
-        self._stocks = _parse_stocks(response.content)
-        return self._stocks
+            try:
+                async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
+                    response = await client.get(
+                        _DART_CORP_CODE_URL,
+                        params={"crtfc_key": settings.dart_api_key},
+                    )
+                    response.raise_for_status()
+            except httpx.HTTPError as exc:
+                logger.warning("dart.corp_code_failed", extra={"err": str(exc)})
+                return []
+
+            self._stocks = _parse_stocks(response.content)
+            self._stocks_loaded_at = time.monotonic()
+            return self._stocks
+
+    def _is_cache_fresh(self) -> bool:
+        if self._stocks is None or self._stocks_loaded_at is None:
+            return False
+        return time.monotonic() - self._stocks_loaded_at < _STOCK_CACHE_TTL_S
 
 
 def _parse_stocks(payload: bytes | str, *, limit: int | None = None) -> list[DartStock]:

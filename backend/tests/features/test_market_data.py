@@ -1,6 +1,8 @@
+import asyncio
 import importlib
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 
 debate_router = importlib.import_module("features.debate.router")
@@ -12,6 +14,16 @@ market_data_models = importlib.import_module("core.market_data.models")
 market_data_repository = importlib.import_module("core.market_data.repository")
 content_read_service = importlib.import_module("features.content.read_service")
 read_service_protocols = importlib.import_module("core.read_services.protocols")
+
+_DART_TEST_XML = """
+<result>
+  <list>
+    <corp_code>00126380</corp_code>
+    <corp_name>삼성전자</corp_name>
+    <stock_code>005930</stock_code>
+  </list>
+</result>
+"""
 
 
 def test_market_data_resolver_treats_unknown_company_as_stock_candidate() -> None:
@@ -200,6 +212,123 @@ def test_dart_parser_extracts_listed_korean_stock_candidates() -> None:
     assert stocks[0].corp_code == "00126380"
     assert stocks[0].market == "KRX"
     assert stocks[1].code == "035720"
+
+
+@pytest.mark.asyncio
+async def test_dart_client_does_not_cache_failed_download(monkeypatch) -> None:
+    client = market_data_dart.DartMarketDataClient()
+    calls = 0
+
+    class FakeResponse:
+        content = _DART_TEST_XML
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.RequestError("temporary failure")
+            return FakeResponse()
+
+    monkeypatch.setattr(market_data_dart.settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(market_data_dart.httpx, "AsyncClient", FakeAsyncClient)
+
+    assert await client.search_stocks("삼성전자") == []
+    assert client._stocks is None
+
+    stocks = await client.search_stocks("삼성전자")
+
+    assert calls == 2
+    assert stocks[0].code == "005930"
+    assert client._stocks is not None
+
+
+@pytest.mark.asyncio
+async def test_dart_client_reuses_fresh_cache(monkeypatch) -> None:
+    client = market_data_dart.DartMarketDataClient()
+    calls = 0
+
+    class FakeResponse:
+        content = _DART_TEST_XML
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            return FakeResponse()
+
+    monkeypatch.setattr(market_data_dart.settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(market_data_dart.httpx, "AsyncClient", FakeAsyncClient)
+
+    first = await client.search_stocks("삼성전자")
+    second = await client.search_stocks("삼성전자")
+
+    assert calls == 1
+    assert first == second
+
+
+@pytest.mark.asyncio
+async def test_dart_client_coalesces_concurrent_initial_loads(monkeypatch) -> None:
+    client = market_data_dart.DartMarketDataClient()
+    calls = 0
+
+    class FakeResponse:
+        content = _DART_TEST_XML
+
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            await asyncio.sleep(0)
+            return FakeResponse()
+
+    monkeypatch.setattr(market_data_dart.settings, "dart_api_key", "test-key")
+    monkeypatch.setattr(market_data_dart.httpx, "AsyncClient", FakeAsyncClient)
+
+    results = await asyncio.gather(
+        client.search_stocks("삼성전자"),
+        client.search_stocks("삼성전자"),
+        client.search_stocks("삼성전자"),
+    )
+
+    assert calls == 1
+    assert all(result[0].code == "005930" for result in results)
 
 
 @pytest.mark.asyncio
