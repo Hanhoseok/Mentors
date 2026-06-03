@@ -131,6 +131,8 @@ export function MentorChatScreen() {
   const growthProgress = growthQuery.data?.progress_percent ?? 0;
   const growthTier = growthQuery.data?.current_tier ?? 'T1';
   const growthWidth = `${Math.min(growthProgress, 100)}%` as `${number}%`;
+  const promotionEligible = growthQuery.data?.eligible_for_promotion === true;
+  const promotionNextTier = growthQuery.data?.next_tier ?? null;
 
   const sessionsQuery = useQuery({
     queryKey: ['learning-chat-sessions', accessToken],
@@ -484,6 +486,25 @@ export function MentorChatScreen() {
             </View>
             <Text style={styles.growthPct}>{growthProgress}%</Text>
           </View>
+        ) : null}
+
+        {/* 승급시험 응시 배너 — 이해도 80% 이상 충족 시 노출 */}
+        {accessToken && promotionEligible && promotionNextTier ? (
+          <Pressable
+            onPress={() => navigation.navigate('PromotionTest')}
+            style={({ pressed }) => [styles.promotionBanner, pressed && styles.pressed]}
+          >
+            <View style={styles.promotionBannerTextCol}>
+              <Text style={styles.promotionBannerEyebrow}>🎓 승급 자격 충족</Text>
+              <Text style={styles.promotionBannerTitle}>
+                {promotionNextTier} 승급시험에 응시할 수 있어요
+              </Text>
+              <Text style={styles.promotionBannerHint}>
+                이해도 {growthProgress}% 달성 — 지금 시험으로 다음 티어를 열어보세요.
+              </Text>
+            </View>
+            <Text style={styles.promotionBannerCta}>응시 →</Text>
+          </Pressable>
         ) : null}
 
         <ScrollView
@@ -855,6 +876,43 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     width: 34,
     textAlign: 'right',
+  },
+  promotionBanner: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  promotionBannerTextCol: {
+    flex: 1,
+    gap: 2,
+  },
+  promotionBannerEyebrow: {
+    color: colors.surface,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    opacity: 0.92,
+  },
+  promotionBannerTitle: {
+    color: colors.surface,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  promotionBannerHint: {
+    color: colors.surface,
+    fontSize: 12,
+    lineHeight: 17,
+    opacity: 0.88,
+  },
+  promotionBannerCta: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '800',
   },
   scrollContent: {
     gap: 16,

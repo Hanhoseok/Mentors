@@ -19,7 +19,7 @@ from core.db import SessionLocal
 from core.event_bus import event_bus
 from core.exceptions import NotFoundError
 from core.llm import Message, llm
-from core.read_services import DailyReportRef, daily_report_reader
+from core.read_services import DailyReportRef, daily_report_reader, learning_reader
 from core.user_context import user_context
 
 from .models import ChatMessage, ChatSession, DailyOpenerLog
@@ -201,15 +201,34 @@ async def stream_assistant_response(
                 f"{rag_ctx.as_context_text()}"
             )
 
+        # 2-1. 채팅 퀴즈 트리거를 위한 '오늘의 학습 개념' 주입.
+        # 진도순 다음 개념을 멘토 답변에 자연스럽게 녹여 키워드를 1회 이상 노출시킨다.
+        # → concept_detector가 같은 개념을 인식해 팔로우업 퀴즈를 띄움 = 닫힌 루프.
+        try:
+            today_concept = await learning_reader.get_today_concept(user_id, user_ctx.tier)
+        except Exception:
+            logger.warning("learning.today_concept_failed", extra={"user_id": user_id})
+            today_concept = None
+        if today_concept is not None and today_concept.keywords:
+            keyword_list = ", ".join(f"'{k}'" for k in today_concept.keywords[:6])
+            system_prompt += (
+                "\n\n[오늘의 학습 개념 - 대화 유도]\n"
+                f"이번 답변에서 사용자의 질문에 답하면서, **{today_concept.title}** "
+                "관점을 자연스럽게 1회 이상 끌어들여라. 답변 본문 또는 '👉 한 발 더' "
+                f"줄에 다음 표현 중 최소 1개를 자연스럽게 포함시켜야 한다: {keyword_list}. "
+                "억지로 끼워 넣지는 말되, 사용자의 질문이 이 개념과 멀어 보일 때도 "
+                "'👉 한 발 더'에서 이 개념으로 다리를 놓는다."
+            )
+
         # 3. LLM 메시지 구성
         llm_messages = [Message(role=MessageRole.SYSTEM, content=system_prompt)]
         for msg in history:
             llm_messages.append(Message(role=MessageRole(msg.role), content=msg.content))
 
-        # 4. 스트리밍 응답 생성 — 멘토 답변은 길어질 수 있으므로 기본 1000을 상향.
-        # core.llm 기본값은 짧은 요약 워크로드에 맞춰져 있어 학습 동에선 명시적으로 늘림.
+        # 4. 스트리밍 응답 생성 — 답변 규약(300~500자)을 강제로 유지하기 위해
+        # max_tokens=900으로 상한을 둔다. 한국어 500자는 대략 700~900 토큰.
         full_answer = ""
-        async for chunk in llm.chat_stream(messages=llm_messages, max_tokens=4096):
+        async for chunk in llm.chat_stream(messages=llm_messages, max_tokens=900):
             if chunk.delta:
                 full_answer += chunk.delta
             yield {"event": "delta", "data": chunk.model_dump_json()}
