@@ -88,11 +88,37 @@ class DailyReportReader(Protocol):
     ) -> DailyReportRef: ...
 
 
+class ConceptRef(BaseModel):
+    """학습 동이 다른 동에 노출하는 커리큘럼 개념 읽기 DTO (ADR-014).
+
+    일일 리포트 동이 '오늘 알아두면 좋은 개념'을 커리큘럼에 고정하고, 멘토 질문에
+    trigger 키워드를 심어 채팅 팔로우업 퀴즈가 발생하도록 쓰는 데 필요한 만큼만 담는다.
+    keywords는 concept_detector가 채팅 텍스트에서 이 개념을 인식하는 키워드 목록이다.
+    """
+
+    id: ConceptId
+    title: str
+    keywords: list[str]
+
+
+class LearningReader(Protocol):
+    """학습 동이 구현. 다른 동이 커리큘럼 진도(티어별 개념 순서)를 읽을 때 사용.
+
+    일일 리포트 동이 사용자의 현재 티어에서 '진도순으로 아직 안 푼 다음 개념'을
+    받아 리포트를 커리큘럼에 정렬한다. 학습 동의 ORM/퀴즈 모델을 경계 밖으로
+    누설하지 않으려고 ConceptRef로 변환해 돌려준다.
+    """
+
+    async def get_today_concept(self, user_id: UserId, tier: Tier) -> ConceptRef | None: ...
+
+
 __all__ = [
+    "ConceptRef",
     "ContentReader",
     "DailyReportReader",
     "DailyReportRef",
     "GrowthReader",
     "IndustryTopicRef",
+    "LearningReader",
     "NewsRef",
 ]

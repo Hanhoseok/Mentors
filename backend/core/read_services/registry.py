@@ -11,11 +11,12 @@
     news = await content_reader.get_today_news_for_user(uid)
 """
 
-from .protocols import ContentReader, DailyReportReader, GrowthReader
+from .protocols import ContentReader, DailyReportReader, GrowthReader, LearningReader
 
 _content_reader: ContentReader | None = None
 _growth_reader: GrowthReader | None = None
 _daily_report_reader: DailyReportReader | None = None
+_learning_reader: LearningReader | None = None
 
 
 def register_content_reader(impl: ContentReader) -> None:
@@ -60,11 +61,27 @@ def get_daily_report_reader() -> DailyReportReader:
     return _daily_report_reader
 
 
+def register_learning_reader(impl: LearningReader) -> None:
+    global _learning_reader
+    _learning_reader = impl
+
+
+def get_learning_reader() -> LearningReader:
+    if _learning_reader is None:
+        raise RuntimeError(
+            "LearningReader not registered. "
+            "Add `register_learning_reader(...)` to features/learning/__init__.py"
+        )
+    return _learning_reader
+
+
 __all__ = [
     "get_content_reader",
     "get_daily_report_reader",
     "get_growth_reader",
+    "get_learning_reader",
     "register_content_reader",
     "register_daily_report_reader",
     "register_growth_reader",
+    "register_learning_reader",
 ]

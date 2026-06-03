@@ -32,7 +32,7 @@ from core.db import SessionLocal
 from core.event_bus import event_bus
 from core.llm import llm
 from core.push import push
-from core.read_services import NewsRef, content_reader
+from core.read_services import ConceptRef, NewsRef, content_reader, learning_reader
 from core.user_context import user_context
 
 from .models import DailyReport, DailyReportCore
@@ -112,13 +112,18 @@ async def _compose_body(
     nickname: str,
     news: list[NewsRef],
     market_summary: str | None,
+    concept: ConceptRef | None = None,
 ) -> str:
-    """멘토 전략 렌즈 + 티어 깊이로 리포트 본문 생성. 실패/무키 시 템플릿 fallback."""
+    """멘토 전략 렌즈 + 티어 깊이로 리포트 본문 생성. 실패/무키 시 템플릿 fallback.
+
+    concept이 주어지면 '오늘의 개념'을 그 커리큘럼 개념으로 고정하고 멘토 질문에
+    trigger 키워드를 심는다(채팅 팔로우업 퀴즈 연결).
+    """
     if not llm.configured:
         return _fallback_body(nickname, news, market_summary)
     try:
         resp = await llm.chat(
-            build_report_prompt(strategy, tier, nickname, news, market_summary),
+            build_report_prompt(strategy, tier, nickname, news, market_summary, concept),
             use_case="content",
             max_tokens=1200,
             temperature=0.7,
@@ -147,6 +152,18 @@ async def _get_or_create_core(
         )
     )
     if existing is not None:
+        # 첫 생성 시 처리된 기사가 없어 빈 스냅샷으로 캐싱된 경우,
+        # 지금 다시 뉴스를 가져와 인-플레이스 업데이트한다.
+        # 이미 뉴스가 있으면 재시도하지 않아 멱등성을 유지한다.
+        if not json.loads(existing.news_ids_json or "[]"):
+            news = await content_reader.get_today_news_for_user(user_id, top_k=_NEWS_TOP_K)
+            if news:
+                existing.news_ids_json = json.dumps([int(n.id) for n in news])
+                existing.market_summary = await _summarize_market(news)
+                logger.info(
+                    "daily_report.core_news_backfilled",
+                    extra={"user_id": user_id, "count": len(news)},
+                )
         return existing
 
     news = await content_reader.get_today_news_for_user(user_id, top_k=_NEWS_TOP_K)
@@ -248,6 +265,18 @@ async def _get_or_create_pending(
     return report, created
 
 
+async def _resolve_today_concept(user_id: UserId, tier: Tier) -> ConceptRef | None:
+    """학습 동에서 진도순 '오늘의 개념'을 읽는다(ADR-014 경계, 읽기 DTO).
+
+    학습 동 미등록/조회 실패 시 None — 리포트는 자유 선택 폴백으로 계속 생성된다.
+    """
+    try:
+        return await learning_reader.get_today_concept(user_id, tier)
+    except Exception:  # noqa: BLE001 — 개념 조회 실패해도 리포트 생성은 막지 않는다
+        logger.warning("daily_report.today_concept_failed", extra={"user_id": user_id})
+        return None
+
+
 async def _fill_report(
     user_id: UserId,
     strategy: MentorStrategy,
@@ -266,7 +295,13 @@ async def _fill_report(
     ctx = await user_context.get_for_daily_report(user_id)
     core = await _get_or_create_core(user_id, report_date, session)
     news = await _load_core_news(core)
-    body = await _compose_body(strategy, ctx.tier, ctx.nickname, news, core.market_summary)
+    concept = await _resolve_today_concept(user_id, ctx.tier)
+    if concept is not None:
+        # 오늘의 학습 개념은 user×date 공통(코어)에 기록 — 멘토가 달라도 같은 개념.
+        core.today_concept_id = int(concept.id)
+    body = await _compose_body(
+        strategy, ctx.tier, ctx.nickname, news, core.market_summary, concept
+    )
     highlights = [{"news_id": int(n.id), "title": n.title} for n in news]
 
     report.core_id = core.id

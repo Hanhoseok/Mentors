@@ -64,6 +64,12 @@ _CONCEPT_KEYWORDS: dict[int, tuple[str, ...]] = {
 }
 
 
+def keywords_for_concept(concept_id: int) -> tuple[str, ...]:
+    """개념 id의 채팅 인식 트리거 키워드. 일일 리포트가 멘토 질문에 이 키워드를
+    심어, 사용자가 질문을 보내면 같은 개념의 팔로우업 퀴즈가 발생하도록 한다."""
+    return _CONCEPT_KEYWORDS.get(concept_id, ())
+
+
 def recommend_quiz_for_text(
     tier: Tier,
     text: str,
@@ -108,4 +114,4 @@ def _normalize(text: str) -> str:
     return text.casefold().replace(" ", "")
 
 
-__all__ = ["recommend_quiz_for_text"]
+__all__ = ["keywords_for_concept", "recommend_quiz_for_text"]
