@@ -159,14 +159,58 @@ class SearchResponse(BaseModel):
     results: list[SearchHit]
 
 
+# ---------------------------------------------------------------------------
+# 스크랩 폴더
+# ---------------------------------------------------------------------------
+
+
+class ScrapFolderCreateRequest(BaseModel):
+    """폴더 생성 요청. user_id는 get_current_user에서 주입."""
+
+    name: str = Field(min_length=1, max_length=100)
+    color: str | None = Field(default=None, max_length=20)
+
+
+class ScrapFolderResponse(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    color: str | None = None
+    scrap_count: int = 0
+    created_at: datetime
+    model_config = {"from_attributes": True}
+
+
 class ScrapCreateRequest(BaseModel):
-    article_id: int
+    """스크랩 생성 요청.
+
+    article_id는 선택 — 실시간 RSS 기사처럼 DB에 없는 경우 스냅샷만으로 저장한다.
+    folder_id가 없으면 미분류 스크랩.
+    """
+
+    folder_id: int | None = None
+    article_id: int | None = None
+    title: str = Field(min_length=1, max_length=1000)
+    url: str = Field(min_length=1, max_length=2000)
+    image_url: str | None = None
+    summary: str | None = None
+    source_name: str | None = Field(default=None, max_length=200)
+    category: str | None = Field(default=None, max_length=100)
+    published_at: datetime | None = None
 
 
 class ScrapResponse(BaseModel):
     id: int
     user_id: int
-    article_id: int
+    folder_id: int | None = None
+    article_id: int | None = None
+    title: str
+    url: str
+    image_url: str | None = None
+    summary: str | None = None
+    source_name: str | None = None
+    category: str | None = None
+    published_at: datetime | None = None
     created_at: datetime
     model_config = {"from_attributes": True}
 
@@ -281,6 +325,8 @@ __all__ = [
     "NewsArticleResponse",
     "NewsListResponse",
     "ScrapCreateRequest",
+    "ScrapFolderCreateRequest",
+    "ScrapFolderResponse",
     "ScrapResponse",
     "SearchHit",
     "SearchResponse",

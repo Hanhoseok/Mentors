@@ -356,8 +356,44 @@ class KnowledgeChunk(Base):
 # ---------------------------------------------------------------------------
 
 
+class ScrapFolder(Base):
+    """사용자가 직접 만든 스크랩 폴더 (예: '국내주식', '해외주식', '테크').
+
+    각 사용자는 자신만의 폴더 집합을 가진다. 폴더 안에 스크랩한 기사를
+    카테고리별로 모아 본다. 폴더 삭제 시 안의 Scrap도 함께 삭제(CASCADE).
+    """
+
+    __tablename__ = "content_scrap_folders"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(100))
+    # UI 폴더 카드 강조용 색상 토큰 (hex 또는 프리셋 키). 없으면 프론트가 기본값.
+    color: Mapped[str | None] = mapped_column(String(20))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    scraps: Mapped[list["Scrap"]] = relationship(
+        back_populates="folder",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_content_scrap_folder_user_name"),
+    )
+
+
 class Scrap(Base):
-    """사용자가 저장한 기사. ScrapAddedEvent 발행/구독의 single source of truth."""
+    """사용자가 저장한 기사. ScrapAddedEvent 발행/구독의 single source of truth.
+
+    article_id는 nullable — 실시간 RSS 토픽 뉴스(live-topics)처럼 DB에 적재되지
+    않은 기사도 스크랩할 수 있도록 기사 스냅샷(title/url/image 등)을 함께 보관한다.
+    folder_id로 사용자가 만든 폴더에 소속된다(없으면 미분류).
+    """
 
     __tablename__ = "content_scraps"
 
@@ -365,16 +401,29 @@ class Scrap(Base):
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    article_id: Mapped[int] = mapped_column(
+    folder_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("content_scrap_folders.id", ondelete="CASCADE"),
+        index=True,
+    )
+    article_id: Mapped[int | None] = mapped_column(
         ForeignKey("content_news_articles.id", ondelete="CASCADE"), index=True
     )
+
+    # 기사 스냅샷 — DB 미적재 기사(live RSS)도 표시 가능하게 저장.
+    title: Mapped[str] = mapped_column(String(1000))
+    url: Mapped[str] = mapped_column(String(2000))
+    image_url: Mapped[str | None] = mapped_column(String(1000))
+    summary: Mapped[str | None] = mapped_column(Text)
+    source_name: Mapped[str | None] = mapped_column(String(200))
+    category: Mapped[str | None] = mapped_column(String(100))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
 
-    __table_args__ = (
-        UniqueConstraint("user_id", "article_id", name="uq_content_scrap_user_article"),
-    )
+    folder: Mapped[ScrapFolder | None] = relationship(back_populates="scraps")
 
 
 # ---------------------------------------------------------------------------
@@ -458,5 +507,6 @@ __all__ = [
     "NewsSource",
     "PipelineRun",
     "Scrap",
+    "ScrapFolder",
     "UserKeyword",
 ]

@@ -18,6 +18,11 @@ import { colors } from '@/constants/colors';
 import type { AppStackParamList } from '@/navigation/types';
 import { getNewsDetail, listNews } from '@/features/explore/content/api';
 import type { NewsArticleResponse } from '@/features/explore/content/types';
+import { TopIconBar } from '@/features/explore/components/TopIconBar';
+import {
+  ScrapFolderPicker,
+  type ScrapDraft,
+} from '@/features/scrap/components/ScrapFolderPicker';
 
 type NewsDetailRouteProp = RouteProp<AppStackParamList, 'NewsDetail'>;
 
@@ -39,6 +44,7 @@ export function NewsDetailScreen() {
   const [article, setArticle] = useState<NewsArticleResponse | null>(null);
   const [related, setRelated] = useState<NewsArticleResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -71,6 +77,19 @@ export function NewsDetailScreen() {
     }
   };
 
+  const scrapDraft: ScrapDraft | null = article
+    ? {
+        article_id: article.id,
+        title: article.display_title ?? article.title_original,
+        url: article.original_url,
+        image_url: article.image_url,
+        summary: article.display_summary ?? article.summary_ko,
+        source_name: article.source_name,
+        category: article.strategies[0] ?? article.source_name ?? null,
+        published_at: article.published_at,
+      }
+    : null;
+
   return (
     <SafeAreaView style={styles.screen}>
       {/* Header */}
@@ -82,19 +101,19 @@ export function NewsDetailScreen() {
           <Text style={styles.headerTitle}>뉴스 상세</Text>
         </View>
 
-        <View style={styles.iconRow}>
+        <View style={styles.headerRight}>
           <Pressable
-            onPress={() => Alert.alert('알림', '새로운 알림이 없습니다.')}
-            style={styles.iconBtn}
+            onPress={() => setPickerOpen(true)}
+            disabled={!scrapDraft}
+            style={({ pressed }) => [
+              styles.scrapBtn,
+              !scrapDraft && styles.scrapBtnDisabled,
+              pressed && styles.pressed,
+            ]}
           >
-            <Text style={styles.iconText}>🔔</Text>
+            <Text style={styles.scrapBtnText}>🔖 스크랩</Text>
           </Pressable>
-          <Pressable
-            onPress={() => Alert.alert('스크랩', '스크랩 페이지 개발 중입니다.')}
-            style={styles.iconBtn}
-          >
-            <Text style={styles.iconText}>📌</Text>
-          </Pressable>
+          <TopIconBar showProfile={false} />
         </View>
       </View>
 
@@ -195,6 +214,14 @@ export function NewsDetailScreen() {
       </ScrollView>
       )}
 
+      <ScrapFolderPicker
+        visible={pickerOpen}
+        draft={scrapDraft}
+        onClose={() => setPickerOpen(false)}
+        onScrapped={(folderName) =>
+          Alert.alert('스크랩 완료', `'${folderName}' 폴더에 저장했어요.`)
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -243,6 +270,27 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: colors.text,
+  },
+  headerRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scrapBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 99,
+    height: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  scrapBtnDisabled: {
+    opacity: 0.5,
+  },
+  scrapBtnText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '800',
   },
   iconRow: {
     flexDirection: 'row',

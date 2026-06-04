@@ -21,6 +21,8 @@ import type {
   NewsListResponse,
   RetryFailedResponse,
   ScrapCreateRequest,
+  ScrapFolderCreateRequest,
+  ScrapFolderResponse,
   ScrapResponse,
   SearchResponse,
   UserKeywordCreateRequest,
@@ -102,15 +104,41 @@ export async function addScrap(payload: ScrapCreateRequest): Promise<ScrapRespon
   return response.data;
 }
 
-export async function listMyScraps(limit = 50): Promise<ScrapResponse[]> {
+export async function listMyScraps(
+  params: { folderId?: number; limit?: number } = {},
+): Promise<ScrapResponse[]> {
+  const { folderId, limit = 100 } = params;
   const response = await apiClient.get<ScrapResponse[]>('/api/content/scraps', {
-    params: { limit },
+    params: { limit, ...(folderId != null ? { folder_id: folderId } : {}) },
   });
   return response.data;
 }
 
 export async function removeScrap(scrapId: number): Promise<void> {
   await apiClient.delete(`/api/content/scraps/${scrapId}`);
+}
+
+// ---------------------------------------------------------------------------
+// 스크랩 폴더 CRUD
+// ---------------------------------------------------------------------------
+
+export async function listScrapFolders(): Promise<ScrapFolderResponse[]> {
+  const response = await apiClient.get<ScrapFolderResponse[]>('/api/content/scrap-folders');
+  return response.data;
+}
+
+export async function createScrapFolder(
+  payload: ScrapFolderCreateRequest,
+): Promise<ScrapFolderResponse> {
+  const response = await apiClient.post<ScrapFolderResponse>(
+    '/api/content/scrap-folders',
+    payload,
+  );
+  return response.data;
+}
+
+export async function removeScrapFolder(folderId: number): Promise<void> {
+  await apiClient.delete(`/api/content/scrap-folders/${folderId}`);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Linking,
   Pressable,
@@ -15,6 +16,11 @@ import { colors } from '@/constants/colors';
 import { getNewsDetail } from '@/features/explore/content/api';
 import type { NewsArticleResponse } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
+import { TopIconBar } from '@/features/explore/components/TopIconBar';
+import {
+  ScrapFolderPicker,
+  type ScrapDraft,
+} from '@/features/scrap/components/ScrapFolderPicker';
 
 type RouteProps = RouteProp<AppStackParamList, 'RssArticleSummary'>;
 
@@ -86,6 +92,7 @@ export function RssArticleSummaryScreen() {
   const [isLoading, setIsLoading] = useState(article_id !== undefined);
   const [error, setError] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -135,6 +142,22 @@ export function RssArticleSummaryScreen() {
   const relevanceInfo = relevance ? RELEVANCE_MAP[relevance] : null;
   const showAnalysis = !!detail && !isLoading;
 
+  // 스크랩 폴더 저장용 기사 스냅샷
+  const scrapCategory =
+    (strategies.length > 0 ? STRATEGY_MAP[strategies[0]] ?? strategies[0] : null) ??
+    source_name ??
+    null;
+  const scrapDraft: ScrapDraft = {
+    article_id: article_id ?? null,
+    title: displayTitle,
+    url,
+    image_url: imageUrl,
+    summary: aiSummary,
+    source_name: source_name,
+    category: scrapCategory,
+    published_at: published_at,
+  };
+
   return (
     <SafeAreaView style={styles.screen} edges={['bottom']}>
       {/* 헤더 */}
@@ -143,7 +166,15 @@ export function RssArticleSummaryScreen() {
           <Text style={styles.backArrow}>←</Text>
         </Pressable>
         <Text style={styles.headerTitle}>AI 요약</Text>
-        <View style={styles.headerSpacer} />
+        <View style={styles.headerRight}>
+          <Pressable
+            onPress={() => setPickerOpen(true)}
+            style={({ pressed }) => [styles.scrapBtn, pressed && styles.pressed]}
+          >
+            <Text style={styles.scrapBtnText}>🔖 스크랩</Text>
+          </Pressable>
+          <TopIconBar showProfile={false} />
+        </View>
       </View>
 
       <ScrollView
@@ -325,6 +356,15 @@ export function RssArticleSummaryScreen() {
           <Text style={styles.originalBtnText}>원문 기사 보기 ↗</Text>
         </Pressable>
       </ScrollView>
+
+      <ScrapFolderPicker
+        visible={pickerOpen}
+        draft={scrapDraft}
+        onClose={() => setPickerOpen(false)}
+        onScrapped={(folderName) =>
+          Alert.alert('스크랩 완료', `'${folderName}' 폴더에 저장했어요.`)
+        }
+      />
     </SafeAreaView>
   );
 }
@@ -355,13 +395,30 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: colors.text,
-    flex: 1,
     fontSize: 17,
     fontWeight: '800',
-    textAlign: 'center',
+    marginLeft: 4,
   },
-  headerSpacer: {
-    width: 36,
+  headerRight: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flex: 1,
+    gap: 8,
+    justifyContent: 'flex-end',
+  },
+  scrapBtn: {
+    alignItems: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 99,
+    flexDirection: 'row',
+    height: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  scrapBtnText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '800',
   },
   content: {
     alignSelf: 'center',         // 웹 와이드 스크린 가운데 정렬

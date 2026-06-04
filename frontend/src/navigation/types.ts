@@ -54,6 +54,11 @@ export type AppStackParamList = {
   NewsDetail: {
     newsId: number;
   };
+  Scrap: undefined;
+  ScrapFolder: {
+    folderId: number;
+    folderName: string;
+  };
   DailyReportDetail: {
     report: DailyReportCard;
     opener?: string;
