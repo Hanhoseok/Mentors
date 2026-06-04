@@ -272,6 +272,49 @@ def test_dev_token_route_reuses_existing_user_for_same_email(monkeypatch) -> Non
         app.dependency_overrides.clear()
 
 
+def test_dev_token_route_applies_requested_tier(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    session = _FakeSession()
+    applied_tiers: list[tuple[int, str]] = []
+    invalidated_user_ids: list[int] = []
+
+    async def _fake_publish(_event) -> None:
+        return None
+
+    async def _fake_apply_dev_tier(_db, *, user_id: int, tier) -> None:
+        applied_tiers.append((user_id, tier.value))
+
+    async def _fake_invalidate(user_id) -> None:
+        invalidated_user_ids.append(int(user_id))
+
+    monkeypatch.setattr(auth_router, "_sync_pk_sequence", _noop_sync_pk_sequence)
+    monkeypatch.setattr(auth_router.event_bus, "publish", _fake_publish)
+    monkeypatch.setattr(auth_router, "_apply_dev_tier", _fake_apply_dev_tier)
+    monkeypatch.setattr(auth_router.user_context, "invalidate", _fake_invalidate)
+
+    app = _build_app()
+    _override_db(app, session)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/dev-token",
+                json={
+                    "email": "dev-tier@local.test",
+                    "nickname": "tier-tester",
+                    "tier": "T2",
+                },
+            )
+
+            assert response.status_code == 200
+            body = response.json()
+            assert body["tier"] == "T2"
+            assert applied_tiers == [(body["user"]["id"], "T2")]
+            assert invalidated_user_ids == [body["user"]["id"]]
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_delete_me_route_marks_user_deleted_and_blocks_future_access(monkeypatch) -> None:
     auth_router = importlib.import_module("core.auth.router")
     session = _FakeSession()

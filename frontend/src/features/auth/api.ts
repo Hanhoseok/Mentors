@@ -10,6 +10,7 @@ import {
 export interface DevAccessTokenRequest {
   email?: string;
   nickname?: string;
+  tier?: 'T1' | 'T2' | 'T3' | 'T4' | 'T5';
 }
 
 export interface DevAccessTokenUser {
@@ -28,6 +29,7 @@ export interface AuthTokenResponse {
 export interface DevAccessTokenResponse extends AuthTokenResponse {
   created: boolean;
   user: DevAccessTokenUser;
+  tier?: 'T1' | 'T2' | 'T3' | 'T4' | 'T5' | null;
 }
 
 export { DEV_LOCAL_TEST_ACCOUNT_EMAIL, DEV_LOCAL_TEST_ACCOUNT_PASSWORD };

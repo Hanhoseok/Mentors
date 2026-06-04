@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type NavigationProp, type RouteProp } from '@react-navigation/native';
 import { colors } from '@/constants/colors';
 import type { AppStackParamList, MainTabParamList } from '@/navigation/types';
+import { useUserStore } from '@/store/userStore';
 import {
   getDebateEligibility,
   getDebateApiErrorMessage,
@@ -80,10 +81,12 @@ type ArenaView = 'setup' | 'debate';
 export function DebateArenaScreen() {
   const navigation = useNavigation<NavigationProp<AppStackParamList>>();
   const route = useRoute<RouteProp<MainTabParamList, 'DebateArena'>>();
+  const accessToken = useUserStore((state) => state.accessToken);
   const routeParams = route.params;
   const abortRef = useRef<AbortController | null>(null);
   const [arenaView, setArenaView] = useState<ArenaView>(routeParams?.replaySessionId ? 'debate' : 'setup');
   const [eligibility, setEligibility] = useState<DebateEligibility | null>(null);
+  const [isCheckingEligibility, setIsCheckingEligibility] = useState(false);
   const [personas, setPersonas] = useState<DebatePersona[]>(FALLBACK_PERSONAS);
   const [selectedFirstId, setSelectedFirstId] = useState(DEFAULT_FIRST_PERSONA.id);
   const [selectedSecondId, setSelectedSecondId] = useState(DEFAULT_SECOND_PERSONA.id);
@@ -143,6 +146,15 @@ export function DebateArenaScreen() {
     useCallback(() => {
       let ignore = false;
 
+      if (!accessToken) {
+        setEligibility(null);
+        setIsCheckingEligibility(false);
+        return () => {
+          ignore = true;
+        };
+      }
+
+      setIsCheckingEligibility(true);
       getDebateEligibility()
         .then((result) => {
           if (ignore) return;
@@ -155,8 +167,12 @@ export function DebateArenaScreen() {
         })
         .catch((error) => {
           if (!ignore) {
+            setEligibility(null);
             setStatusText(getDebateApiErrorMessage(error, '투기장 권한을 확인하지 못했습니다.'));
           }
+        })
+        .finally(() => {
+          if (!ignore) setIsCheckingEligibility(false);
         });
 
       listDebatePersonas()
@@ -177,7 +193,7 @@ export function DebateArenaScreen() {
       return () => {
         ignore = true;
       };
-    }, []),
+    }, [accessToken]),
   );
 
   useEffect(() => {
@@ -216,7 +232,6 @@ export function DebateArenaScreen() {
       .finally(() => {
         if (abortRef.current === controller) abortRef.current = null;
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeParams?.replayStreamUrl]);
 
   function handleSelectPersona(personaId: string) {
@@ -431,6 +446,7 @@ export function DebateArenaScreen() {
               secondPersona={secondPersona}
               selectedFirstId={selectedFirstId}
               selectedSecondId={selectedSecondId}
+              isCheckingEligibility={isCheckingEligibility}
               statusText={statusText}
               topic={topic}
               tier={eligibility?.tier}
@@ -483,6 +499,7 @@ function SetupPanel({
   secondPersona,
   selectedFirstId,
   selectedSecondId,
+  isCheckingEligibility,
   statusText,
   tier,
   topic,
@@ -497,6 +514,7 @@ function SetupPanel({
   secondPersona: DebatePersona;
   selectedFirstId: string;
   selectedSecondId: string;
+  isCheckingEligibility: boolean;
   statusText: string;
   tier?: string;
   topic: string;
@@ -513,7 +531,17 @@ function SetupPanel({
         </Text>
       </View>
 
-      {!tier || tier === 'T1' ? (
+      {isCheckingEligibility ? (
+        <View style={styles.lockedBanner}>
+          <ActivityIndicator color={colors.primary} />
+          <View style={styles.lockedTextGroup}>
+            <Text style={styles.lockedTitle}>투기장 권한을 확인하고 있어요</Text>
+            <Text style={styles.lockedDesc}>
+              선택한 개발자 티어가 반영되는지 서버에서 다시 확인 중입니다.
+            </Text>
+          </View>
+        </View>
+      ) : tier === 'T1' ? (
         <View style={styles.lockedBanner}>
           <Text style={styles.lockedIcon}>🔒</Text>
           <View style={styles.lockedTextGroup}>

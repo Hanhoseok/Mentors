@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.cache import make_cache
 from core.config import settings
-from core.contracts import UserId, UserSignedUpEvent, UserUpdatedEvent
+from core.contracts import Tier, UserId, UserSignedUpEvent, UserUpdatedEvent
 from core.db import get_db
 from core.event_bus import event_bus
 from core.exceptions import (
@@ -21,6 +21,7 @@ from core.exceptions import (
     ForbiddenError,
     UnauthorizedError,
 )
+from core.user_context import user_context
 
 from .dependencies import get_current_user
 from .jwt import create_access_token
@@ -68,11 +69,13 @@ class UserResponse(BaseModel):
 class DevTokenRequest(BaseModel):
     email: str | None = None
     nickname: str | None = None
+    tier: Tier | None = None
 
 
 class DevTokenResponse(TokenResponse):
     user: UserResponse
     created: bool
+    tier: Tier | None = None
 
 
 class LocalSignupRequest(BaseModel):
@@ -226,13 +229,46 @@ async def issue_dev_token(
         created = True
         await event_bus.publish(UserSignedUpEvent(user_id=UserId(user.id)))
 
+    if req.tier is not None:
+        await _apply_dev_tier(db, user_id=user.id, tier=req.tier)
+        await user_context.invalidate(UserId(user.id))
+
     token = create_access_token(user.id)
     return DevTokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
         user=UserResponse.from_user(user),
         created=created,
+        tier=req.tier,
     )
+
+
+async def _apply_dev_tier(db: AsyncSession, *, user_id: int, tier: Tier) -> None:
+    await db.execute(
+        text(
+            """
+            INSERT INTO user_profiles (user_id, current_tier)
+            VALUES (:user_id, :tier)
+            ON CONFLICT (user_id)
+            DO UPDATE SET current_tier = EXCLUDED.current_tier,
+                          updated_at = now()
+            """
+        ),
+        {"user_id": user_id, "tier": tier.value},
+    )
+    await db.execute(
+        text(
+            """
+            INSERT INTO tier_states (user_id, current_tier)
+            VALUES (:user_id, :tier)
+            ON CONFLICT (user_id)
+            DO UPDATE SET current_tier = EXCLUDED.current_tier,
+                          updated_at = now()
+            """
+        ),
+        {"user_id": user_id, "tier": tier.value},
+    )
+    await db.commit()
 
 
 async def _upsert_user(db: AsyncSession, info: GoogleUserInfo) -> tuple[User, bool]:

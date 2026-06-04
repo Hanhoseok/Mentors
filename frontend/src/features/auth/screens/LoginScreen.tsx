@@ -20,6 +20,8 @@ import { localLogin, issueDevAccessToken, getAuthApiErrorMessage } from '../api'
 import type { AppStackParamList } from '@/navigation/types';
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
+const DEV_TIERS = ['T1', 'T2', 'T3', 'T4', 'T5'] as const;
+type DevTier = (typeof DEV_TIERS)[number];
 
 export function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
@@ -30,6 +32,7 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [selectedDevTier, setSelectedDevTier] = useState<DevTier>('T2');
 
   // 구글 OAuth 콜백: ?token=<jwt> 파라미터가 URL에 있으면 자동 로그인 (웹 전용)
   useEffect(() => {
@@ -58,7 +61,11 @@ export function LoginScreen() {
     setIsSubmitting(true);
     setErrorMsg(null);
     try {
-      const response = await issueDevAccessToken();
+      const response = await issueDevAccessToken({
+        email: 'dev-tier@local.test',
+        nickname: 'tier-tester',
+        tier: selectedDevTier,
+      });
       resetOnboarding();
       setAccessToken(response.access_token);
     } catch {
@@ -212,10 +219,51 @@ export function LoginScreen() {
               </Pressable>
             </View>
 
-            {/* Developer Bypass Button */}
-            <Pressable onPress={() => { void handleDevBypass(); }} style={styles.devBypassButton}>
-              <Text style={styles.devBypassButtonText}>[개발자 모드] 로그인 건너뛰기</Text>
-            </Pressable>
+            {/* Developer Bypass */}
+            <View style={styles.devTierPanel}>
+              <Text style={styles.devTierLabel}>개발자 티어</Text>
+              <View style={styles.devTierRow}>
+                {DEV_TIERS.map((tier) => {
+                  const selected = selectedDevTier === tier;
+                  return (
+                    <Pressable
+                      key={tier}
+                      disabled={isSubmitting}
+                      onPress={() => setSelectedDevTier(tier)}
+                      style={({ pressed }) => [
+                        styles.devTierButton,
+                        selected && styles.devTierButtonSelected,
+                        pressed && !isSubmitting && styles.buttonPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.devTierButtonText,
+                          selected && styles.devTierButtonTextSelected,
+                        ]}
+                      >
+                        {tier}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable
+                disabled={isSubmitting}
+                onPress={() => {
+                  void handleDevBypass();
+                }}
+                style={({ pressed }) => [
+                  styles.devBypassButton,
+                  isSubmitting && styles.buttonDisabled,
+                  pressed && !isSubmitting && styles.buttonPressed,
+                ]}
+              >
+                <Text style={styles.devBypassButtonText}>
+                  [개발자 모드] {selectedDevTier}로 로그인
+                </Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -386,14 +434,53 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.9,
   },
+  devTierPanel: {
+    backgroundColor: '#F2F4F2',
+    borderRadius: 14,
+    marginTop: 16,
+    padding: 12,
+  },
+  devTierLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  devTierRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 10,
+  },
+  devTierButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    height: 38,
+    justifyContent: 'center',
+  },
+  devTierButtonSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  devTierButtonText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  devTierButtonTextSelected: {
+    color: colors.surface,
+  },
   devBypassButton: {
     alignItems: 'center',
+    backgroundColor: colors.surface,
     borderColor: '#E7EAE7',
     borderRadius: 12,
     borderWidth: 1,
     height: 48,
     justifyContent: 'center',
-    marginTop: 16,
   },
   devBypassButtonText: {
     color: colors.muted,
