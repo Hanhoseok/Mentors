@@ -4,7 +4,7 @@ import logging
 import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Protocol, TypedDict
+from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +22,7 @@ from core.market_data.finnhub import (
 )
 from core.market_data.models import MarketEntity
 from core.market_data.repository import upsert_entity, upsert_news_item
+from core.market_data.seeds import DEFAULT_SEED_ENTITIES
 from core.read_services import IndustryTopicRef, content_reader
 
 logger = logging.getLogger("market_data")
@@ -56,71 +57,6 @@ class MarketDataDiscoveryClient(Protocol):
 
 class KoreanMarketDataDiscoveryClient(Protocol):
     async def search_stocks(self, query: str, *, limit: int = 5) -> list[DartStock]: ...
-
-
-class SeedEntity(TypedDict, total=False):
-    kind: str
-    symbol: str
-    name: str
-    name_en: str
-    exchange: str
-    sector: str
-    industry: str
-    aliases: list[str]
-    themes: list[str]
-
-
-DEFAULT_SEED_ENTITIES: tuple[SeedEntity, ...] = (
-    {
-        "kind": "stock",
-        "symbol": "PLTR",
-        "name": "팔란티어",
-        "name_en": "Palantir",
-        "exchange": "NYSE",
-        "sector": "software",
-        "industry": "data analytics",
-        "aliases": ["palantir", "pltr"],
-        "themes": ["AI", "방산", "데이터 분석"],
-    },
-    {
-        "kind": "stock",
-        "symbol": "RBLX",
-        "name": "로블록스",
-        "name_en": "Roblox",
-        "exchange": "NYSE",
-        "sector": "communication services",
-        "industry": "gaming platform",
-        "aliases": ["roblox", "rblx"],
-        "themes": ["게임", "메타버스"],
-    },
-    {
-        "kind": "theme",
-        "symbol": "SPACE_TECH",
-        "name": "우주테크",
-        "name_en": "space tech",
-        "sector": "industrial technology",
-        "aliases": ["우주항공", "항공우주", "위성", "발사체", "space economy"],
-        "themes": ["방산", "위성통신", "발사체"],
-    },
-    {
-        "kind": "theme",
-        "symbol": "QUANTUM_COMPUTING",
-        "name": "양자컴퓨팅",
-        "name_en": "quantum computing",
-        "sector": "technology",
-        "aliases": ["양자컴퓨터", "퀀텀컴퓨팅", "quantum"],
-        "themes": ["반도체", "클라우드", "보안"],
-    },
-    {
-        "kind": "theme",
-        "symbol": "POWER_GRID",
-        "name": "전력망",
-        "name_en": "power grid",
-        "sector": "infrastructure",
-        "aliases": ["송전망", "전력 인프라", "grid infrastructure"],
-        "themes": ["전력", "AI 데이터센터", "인프라"],
-    },
-)
 
 
 async def refresh_market_data() -> None:

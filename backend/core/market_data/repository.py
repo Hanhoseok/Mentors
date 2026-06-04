@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from sqlalchemy import String, cast, or_, select
+from sqlalchemy import func, literal_column, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.market_data.models import MarketEntity, MarketNewsItem
@@ -34,10 +34,27 @@ async def find_entity_match(db: AsyncSession, topic: str) -> MarketEntityMatch |
                 MarketEntity.symbol.ilike(like),
                 MarketEntity.name.ilike(like),
                 MarketEntity.name_en.ilike(like),
-                cast(MarketEntity.aliases, String).ilike(like),
-                cast(MarketEntity.themes, String).ilike(like),
+                MarketEntity.aliases.contains([token]),
+                MarketEntity.themes.contains([token]),
             ]
         )
+    search_query = " ".join(tokens[:6])
+    search_text = (
+        func.coalesce(MarketEntity.symbol, "")
+        + " "
+        + func.coalesce(MarketEntity.name, "")
+        + " "
+        + func.coalesce(MarketEntity.name_en, "")
+        + " "
+        + func.coalesce(MarketEntity.sector, "")
+        + " "
+        + func.coalesce(MarketEntity.industry, "")
+    )
+    candidate_filters.append(
+        func.to_tsvector(literal_column("'simple'"), search_text).op("@@")(
+            func.plainto_tsquery(literal_column("'simple'"), search_query)
+        )
+    )
     result = await db.execute(select(MarketEntity).where(or_(*candidate_filters)).limit(50))
     candidates = list(result.scalars().all())
 
