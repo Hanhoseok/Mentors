@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Pressable,
   ScrollView,
@@ -23,6 +22,7 @@ import type {
   UserKeywordResponse,
 } from '@/features/explore/content/types';
 import type { IndicatorQuote } from '@/features/explore/market/types';
+import { TopIconBar } from '@/features/explore/components/TopIconBar';
 
 // ── Static fallback data ───────────────────────────────────────────────────────
 
@@ -273,23 +273,7 @@ export function SearchScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.iconRow}>
-          <Pressable
-            onPress={() => Alert.alert('알림', '새로운 알림이 없습니다.')}
-            style={styles.iconBtn}
-          >
-            <Text style={styles.iconText}>🔔</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => Alert.alert('스크랩', '스크랩 페이지 개발 중입니다.')}
-            style={styles.iconBtn}
-          >
-            <Text style={styles.iconText}>📌</Text>
-          </Pressable>
-          <Pressable onPress={() => navigation.navigate('Settings')} style={styles.iconBtn}>
-            <Text style={styles.iconText}>👤</Text>
-          </Pressable>
-        </View>
+        <TopIconBar />
       </View>
 
       {/* ── 사용자 키워드 패널 — 검색창 바로 아래 상시 노출 ── */}

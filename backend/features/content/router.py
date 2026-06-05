@@ -38,6 +38,7 @@ from .models import (
     MasterKeywordCompany,
     NewsArticle,
     Scrap,
+    ScrapFolder,
 )
 from .schemas import (
     IndustryItem,
@@ -47,6 +48,8 @@ from .schemas import (
     NewsArticleResponse,
     NewsListResponse,
     ScrapCreateRequest,
+    ScrapFolderCreateRequest,
+    ScrapFolderResponse,
     ScrapResponse,
     SearchHit,
     SearchResponse,
@@ -546,6 +549,114 @@ async def get_news(
 
 
 # ---------------------------------------------------------------------------
+# 스크랩 폴더 — 사용자가 직접 만드는 분류함
+# ---------------------------------------------------------------------------
+
+
+async def _folder_to_response(db: AsyncSession, folder: ScrapFolder) -> ScrapFolderResponse:
+    count = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(Scrap).where(Scrap.folder_id == folder.id)
+            )
+        ).scalar_one()
+        or 0
+    )
+    return ScrapFolderResponse(
+        id=folder.id,
+        user_id=folder.user_id,
+        name=folder.name,
+        color=folder.color,
+        scrap_count=count,
+        created_at=folder.created_at,
+    )
+
+
+@router.get("/scrap-folders", response_model=list[ScrapFolderResponse])
+async def list_scrap_folders(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ScrapFolderResponse]:
+    """내 스크랩 폴더 목록 (각 폴더의 스크랩 개수 포함, 생성 순)."""
+    folders = (
+        await db.execute(
+            select(ScrapFolder)
+            .where(ScrapFolder.user_id == user.id)
+            .order_by(ScrapFolder.created_at.asc(), ScrapFolder.id.asc())
+        )
+    ).scalars().all()
+
+    # 폴더별 개수를 한 번의 group-by 쿼리로
+    counts = dict(
+        (
+            await db.execute(
+                select(Scrap.folder_id, func.count())
+                .where(Scrap.user_id == user.id, Scrap.folder_id.is_not(None))
+                .group_by(Scrap.folder_id)
+            )
+        ).all()
+    )
+    return [
+        ScrapFolderResponse(
+            id=f.id,
+            user_id=f.user_id,
+            name=f.name,
+            color=f.color,
+            scrap_count=int(counts.get(f.id, 0)),
+            created_at=f.created_at,
+        )
+        for f in folders
+    ]
+
+
+@router.post("/scrap-folders", response_model=ScrapFolderResponse, status_code=201)
+async def create_scrap_folder(
+    payload: ScrapFolderCreateRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ScrapFolderResponse:
+    """새 스크랩 폴더 생성. 같은 이름이 이미 있으면 409."""
+    name = payload.name.strip()
+    if not name:
+        raise ConflictError("폴더 이름을 입력해 주세요")
+
+    existing = await db.scalar(
+        select(ScrapFolder).where(
+            ScrapFolder.user_id == user.id, ScrapFolder.name == name
+        )
+    )
+    if existing is not None:
+        raise ConflictError("같은 이름의 폴더가 이미 있습니다")
+
+    folder = ScrapFolder(user_id=user.id, name=name, color=payload.color)
+    db.add(folder)
+    await db.commit()
+    await db.refresh(folder)
+    logger.info(
+        "content.scrap_folder_created", extra={"user_id": user.id, "folder_id": folder.id}
+    )
+    return await _folder_to_response(db, folder)
+
+
+@router.delete("/scrap-folders/{folder_id}", status_code=204)
+async def delete_scrap_folder(
+    folder_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """본인 소유 폴더 삭제 — 폴더 안의 스크랩도 함께 삭제(CASCADE)."""
+    folder = await db.scalar(
+        select(ScrapFolder).where(
+            ScrapFolder.id == folder_id, ScrapFolder.user_id == user.id
+        )
+    )
+    if folder is None:
+        raise NotFoundError("폴더를 찾을 수 없습니다")
+    await db.delete(folder)
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
 # 스크랩 (PR-4) — ScrapAddedEvent 발행으로 다른 동(growth 등)에 알림
 # ---------------------------------------------------------------------------
 
@@ -556,27 +667,72 @@ async def add_scrap(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> ScrapResponse:
-    """기사 스크랩 생성. ScrapAddedEvent 발행."""
-    article = await db.scalar(select(NewsArticle).where(NewsArticle.id == payload.article_id))
-    if article is None:
-        raise NotFoundError("기사를 찾을 수 없습니다")
+    """기사 스크랩 생성.
 
+    - folder_id 지정 시 본인 폴더 검증.
+    - article_id가 있으면 DB 기사 검증 + ScrapAddedEvent 발행. 없으면(live RSS)
+      스냅샷만으로 저장 (이벤트는 article_id 필수라 생략).
+    - 같은 폴더에 같은 기사(article_id 또는 url) 중복 저장은 409.
+    """
+    # 폴더 소유 검증
+    if payload.folder_id is not None:
+        folder = await db.scalar(
+            select(ScrapFolder).where(
+                ScrapFolder.id == payload.folder_id, ScrapFolder.user_id == user.id
+            )
+        )
+        if folder is None:
+            raise NotFoundError("폴더를 찾을 수 없습니다")
+
+    # article_id가 있으면 실제 기사 존재 검증
+    if payload.article_id is not None:
+        article = await db.scalar(
+            select(NewsArticle).where(NewsArticle.id == payload.article_id)
+        )
+        if article is None:
+            raise NotFoundError("기사를 찾을 수 없습니다")
+
+    # 같은 폴더 내 중복 방지 (article_id 우선, 없으면 url 기준)
+    dup_clause = (
+        Scrap.article_id == payload.article_id
+        if payload.article_id is not None
+        else Scrap.url == payload.url
+    )
     existing = await db.scalar(
-        select(Scrap).where(Scrap.user_id == user.id, Scrap.article_id == payload.article_id)
+        select(Scrap).where(
+            Scrap.user_id == user.id,
+            Scrap.folder_id == payload.folder_id,
+            dup_clause,
+        )
     )
     if existing is not None:
-        raise ConflictError("이미 스크랩된 기사입니다")
+        raise ConflictError("이미 이 폴더에 스크랩된 기사입니다")
 
-    scrap = Scrap(user_id=user.id, article_id=payload.article_id)
+    scrap = Scrap(
+        user_id=user.id,
+        folder_id=payload.folder_id,
+        article_id=payload.article_id,
+        title=payload.title,
+        url=payload.url,
+        image_url=payload.image_url,
+        summary=payload.summary,
+        source_name=payload.source_name,
+        category=payload.category,
+        published_at=payload.published_at,
+    )
     db.add(scrap)
     await db.commit()
     await db.refresh(scrap)
 
-    # core.contracts.ArticleId는 NewType[int] — 그냥 int 전달
-    await event_bus.publish(
-        ScrapAddedEvent(user_id=user.id, article_id=scrap.article_id)  # type: ignore[arg-type]
+    if scrap.article_id is not None:
+        # core.contracts.ArticleId는 NewType[int] — 그냥 int 전달
+        await event_bus.publish(
+            ScrapAddedEvent(user_id=user.id, article_id=scrap.article_id)  # type: ignore[arg-type]
+        )
+    logger.info(
+        "content.scrap_added",
+        extra={"user_id": user.id, "scrap_id": scrap.id, "folder_id": scrap.folder_id},
     )
-    logger.info("content.scrap_added", extra={"user_id": user.id, "article_id": scrap.article_id})
 
     return ScrapResponse.model_validate(scrap)
 
@@ -601,16 +757,15 @@ async def remove_scrap(
 async def list_my_scraps(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    folder_id: int | None = Query(None, description="폴더 필터 — 지정 시 해당 폴더만"),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[ScrapResponse]:
-    """내 스크랩 목록 (최신 순)."""
+    """내 스크랩 목록 (최신 순). folder_id 지정 시 그 폴더 안의 스크랩만."""
+    stmt = select(Scrap).where(Scrap.user_id == user.id)
+    if folder_id is not None:
+        stmt = stmt.where(Scrap.folder_id == folder_id)
     rows = (
-        await db.execute(
-            select(Scrap)
-            .where(Scrap.user_id == user.id)
-            .order_by(desc(Scrap.created_at))
-            .limit(limit)
-        )
+        await db.execute(stmt.order_by(desc(Scrap.created_at)).limit(limit))
     ).scalars().all()
     return [ScrapResponse.model_validate(s) for s in rows]
 

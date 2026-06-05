@@ -16,6 +16,7 @@ import { colors } from '@/constants/colors';
 import { searchNews } from '@/features/explore/content/api';
 import type { SearchHit } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
+import { TopIconBar } from '@/features/explore/components/TopIconBar';
 
 type RouteProps = RouteProp<AppStackParamList, 'SearchResult'>;
 
@@ -120,13 +121,14 @@ export function SearchResultScreen() {
             <Text style={styles.searchBtnText}>검색</Text>
           </Pressable>
         </View>
+        <TopIconBar showProfile={false} />
       </View>
 
       {/* 결과 */}
       {isLoading ? (
         <View style={styles.centerBox}>
           <ActivityIndicator color={colors.primary} size="large" />
-          <Text style={styles.loadingText}>"{activeQuery}" 검색 중...</Text>
+          <Text style={styles.loadingText}>{`"${activeQuery}" 검색 중...`}</Text>
         </View>
       ) : !hasSearched ? null : results.length === 0 ? (
         <View style={styles.centerBox}>
@@ -141,7 +143,7 @@ export function SearchResultScreen() {
         >
           {/* 결과 수 */}
           <Text style={styles.resultCount}>
-            "{activeQuery}" 검색 결과 {results.length}건
+            {`"${activeQuery}" 검색 결과 ${results.length}건`}
           </Text>
 
           {results.map((item, index) => (

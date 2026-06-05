@@ -130,12 +130,46 @@ export interface IndustryItem {
 export interface ScrapResponse {
   id: number;
   user_id: number;
-  article_id: number;
+  folder_id: number | null;
+  article_id: number | null;
+  title: string;
+  url: string;
+  image_url: string | null;
+  summary: string | null;
+  source_name: string | null;
+  category: string | null;
+  published_at: string | null;
   created_at: string;
 }
 
 export interface ScrapCreateRequest {
-  article_id: number;
+  folder_id?: number | null;
+  article_id?: number | null;
+  title: string;
+  url: string;
+  image_url?: string | null;
+  summary?: string | null;
+  source_name?: string | null;
+  category?: string | null;
+  published_at?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// 스크랩 폴더
+// ---------------------------------------------------------------------------
+
+export interface ScrapFolderResponse {
+  id: number;
+  user_id: number;
+  name: string;
+  color: string | null;
+  scrap_count: number;
+  created_at: string;
+}
+
+export interface ScrapFolderCreateRequest {
+  name: string;
+  color?: string | null;
 }
 
 // ---------------------------------------------------------------------------
