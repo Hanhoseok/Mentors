@@ -1,7 +1,8 @@
 {
   "expo": {
-    "name": "frontend",
+    "name": "Mentors",
     "slug": "frontend",
+    "scheme": "mentors",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -13,9 +14,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.worldlenssogong.mentors"
     },
     "android": {
+      "package": "com.worldlenssogong.mentors",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -25,6 +28,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-web-browser"
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "93442475-a9c9-4e35-8654-d5e465e1b1fe"
+      }
     }
   }
 }

@@ -3,10 +3,14 @@ const assert = require('node:assert/strict');
 const {
   DEV_LOCAL_TEST_ACCOUNT_EMAIL,
   DEV_LOCAL_TEST_ACCOUNT_PASSWORD,
+  buildGoogleNativeLoginPayload,
+  buildGoogleNativeSigninConfig,
+  buildNativeAuthReturnTo,
   buildGoogleLoginStartUrl,
   buildLocalLoginPayload,
   buildLocalSignupPayload,
   normalizeEmailInput,
+  parseAuthCallbackUrl,
   parseAuthCallbackParams,
   validateAuthDraft,
 } = require('../../.tmp-harness-auth/_dev-harness/auth/logic.js');
@@ -79,6 +83,21 @@ assert.equal(
   'google login redirect URLs should strip stale auth query params from the return target',
 );
 
+assert.equal(
+  buildNativeAuthReturnTo((path) => `exp://192.168.0.26:8081/--/${path}`),
+  'exp://192.168.0.26:8081/--/auth',
+  'native auth return URLs should delegate to Expo URL creation so Expo Go can route back into the app',
+);
+
+assert.equal(
+  buildGoogleLoginStartUrl(
+    'http://192.168.0.26:8000',
+    'exp://192.168.0.26:8081/--/auth?token=stale&error=old',
+  ),
+  'http://192.168.0.26:8000/auth/google/login?return_to=exp%3A%2F%2F192.168.0.26%3A8081%2F--%2Fauth',
+  'google login redirect URLs should also sanitize Expo Go return targets',
+);
+
 assert.deepEqual(
   parseAuthCallbackParams('?token=test-token&is_new=1'),
   {
@@ -99,6 +118,63 @@ assert.deepEqual(
     isNew: false,
   },
   'callback parsing should surface backend auth errors for the login screen',
+);
+
+assert.deepEqual(
+  parseAuthCallbackUrl('mentors://auth?token=deep-link-token&is_new=0'),
+  {
+    token: 'deep-link-token',
+    error: null,
+    isNew: false,
+  },
+  'native callback parsing should handle custom-scheme redirects from development builds',
+);
+
+assert.deepEqual(
+  parseAuthCallbackUrl('exp://192.168.0.26:8081/--/auth?error=oauth-failed'),
+  {
+    token: null,
+    error: 'oauth-failed',
+    isNew: false,
+  },
+  'native callback parsing should handle Expo Go auth redirects',
+);
+
+assert.deepEqual(
+  buildGoogleNativeSigninConfig({
+    platform: 'android',
+    webClientId: 'web-client-id',
+    iosClientId: 'ios-client-id',
+  }),
+  {
+    webClientId: 'web-client-id',
+  },
+  'Android native auth should only need the shared web client id',
+);
+
+assert.deepEqual(
+  buildGoogleNativeSigninConfig({
+    platform: 'ios',
+    webClientId: 'web-client-id',
+    iosClientId: 'ios-client-id',
+  }),
+  {
+    webClientId: 'web-client-id',
+    iosClientId: 'ios-client-id',
+  },
+  'iOS native auth should include the iOS client id alongside the shared web client id',
+);
+
+assert.deepEqual(
+  buildGoogleNativeLoginPayload({
+    idToken: 'google-id-token',
+    platform: 'android',
+  }),
+  {
+    id_token: 'google-id-token',
+    platform: 'android',
+  },
+  'mobile Google native login payloads should match backend field names exactly',
 );
 
 assert.equal(

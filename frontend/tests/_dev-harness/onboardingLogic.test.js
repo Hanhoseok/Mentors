@@ -8,6 +8,7 @@ const {
   getOnboardingStepLabel,
   getRecommendedMentors,
   isSurveyComplete,
+  shouldUseLocalOnboardingFallback,
 } = require('../../.tmp-harness-onboarding/_dev-harness/onboarding/logic.js');
 const {
   getInterestLabel,
@@ -37,6 +38,16 @@ assert.equal(isSurveyComplete(survey), true, 'survey with all answers should be 
 assert.equal(getOnboardingStepLabel(0), '1 / 6');
 assert.equal(getOnboardingStepLabel(5), '6 / 6');
 assert.equal(getOnboardingProgressValue(2), 0.5);
+assert.equal(
+  shouldUseLocalOnboardingFallback(null),
+  true,
+  'anonymous onboarding can fall back to local completion when no backend identity exists',
+);
+assert.equal(
+  shouldUseLocalOnboardingFallback('jwt-token'),
+  false,
+  'authenticated onboarding should not silently fall back to local completion when backend sync fails',
+);
 
 assert.equal(
   onboardingInterestOptions.some((option) => option.value === 'it'),

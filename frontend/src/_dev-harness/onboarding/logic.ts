@@ -17,6 +17,7 @@ import type {
   OnboardingSurvey,
   OnboardingSyncState,
 } from '../../features/onboarding/types';
+export { shouldUseLocalOnboardingFallback } from '../../features/onboarding/flow';
 
 type CompletedSurvey = Omit<
   CompletedOnboardingProfile,

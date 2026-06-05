@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
+import { syncNativePushState } from '@/features/push/bootstrap';
 import { getOnboardingStatus } from '@/features/onboarding/api';
 import type {
   CompletedOnboardingProfile,
@@ -36,6 +37,10 @@ export function RootNavigator() {
   const finishOnboarding = useUserStore((state) => state.finishOnboarding);
   const resetOnboarding = useUserStore((state) => state.resetOnboarding);
   const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(false);
+
+  useEffect(() => {
+    void syncNativePushState(accessToken);
+  }, [accessToken]);
 
   useEffect(() => {
     let ignore = false;

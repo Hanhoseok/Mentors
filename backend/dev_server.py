@@ -8,6 +8,7 @@ Linux/Mac은 영향 없음 — 운영 배포(`uvicorn main:app`)와는 별개 de
 """
 
 import asyncio
+import os
 import selectors
 import sys
 
@@ -15,10 +16,12 @@ import uvicorn
 
 
 def main() -> None:
+    host = os.getenv("HOST", "0.0.0.0")
+    port = int(os.getenv("PORT", "8000"))
     config = uvicorn.Config(
         "main:app",
-        host="127.0.0.1",
-        port=8000,
+        host=host,
+        port=port,
         log_level="info",
         reload=False,
     )

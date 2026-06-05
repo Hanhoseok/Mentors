@@ -4,6 +4,15 @@ import {
   type LocalLoginRequest,
   type LocalSignupRequest,
 } from '../../features/auth/contracts';
+export {
+  buildGoogleNativeLoginPayload,
+  buildGoogleNativeSigninConfig,
+  buildGoogleLoginStartUrl,
+  buildNativeAuthReturnTo,
+  parseAuthCallbackParams,
+  parseAuthCallbackUrl,
+  sanitizeAuthReturnTo,
+} from '../../features/auth/oauth';
 
 export type AuthMode = 'login' | 'signup';
 
@@ -12,14 +21,6 @@ export interface AuthDraft {
   password: string;
   passwordConfirm: string;
 }
-
-export interface AuthCallbackParams {
-  token: string | null;
-  error: string | null;
-  isNew: boolean;
-}
-
-const AUTH_CALLBACK_PARAM_NAMES = ['token', 'error', 'is_new'] as const;
 
 export const EMPTY_AUTH_DRAFT: AuthDraft = {
   email: '',
@@ -83,33 +84,3 @@ export function buildTestAccountLoginPayload(): LocalLoginRequest {
   };
 }
 
-export function parseAuthCallbackParams(search: string): AuthCallbackParams {
-  const normalizedSearch = search.startsWith('?') ? search.slice(1) : search;
-  const params = new URLSearchParams(normalizedSearch);
-
-  return {
-    token: params.get('token'),
-    error: params.get('error'),
-    isNew: params.get('is_new') === '1',
-  };
-}
-
-export function sanitizeAuthReturnTo(input: string): string {
-  try {
-    const url = new URL(input);
-    for (const paramName of AUTH_CALLBACK_PARAM_NAMES) {
-      url.searchParams.delete(paramName);
-    }
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return input;
-  }
-}
-
-export function buildGoogleLoginStartUrl(apiBaseUrl: string, returnTo: string): string {
-  const normalizedBaseUrl = apiBaseUrl.replace(/\/+$/, '');
-  const url = new URL(`${normalizedBaseUrl}/auth/google/login`);
-  url.searchParams.set('return_to', sanitizeAuthReturnTo(returnTo));
-  return url.toString();
-}

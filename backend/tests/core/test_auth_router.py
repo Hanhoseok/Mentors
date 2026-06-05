@@ -500,6 +500,40 @@ def test_local_login_route_rejects_google_only_account(monkeypatch) -> None:
         app.dependency_overrides.clear()
 
 
+def test_local_login_route_rejects_deleted_account(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    session = _FakeSession()
+    deleted_user = User(
+        id=89,
+        email="deleted-local@example.com",
+        nickname="deleted-local",
+        status="deleted",
+    )
+    session.seed_user(deleted_user)
+    session.seed_local_credential(user_id=89, password_hash=_hash_password("Mentors123!"))
+
+    monkeypatch.setattr(auth_router, "_sync_pk_sequence", _noop_sync_pk_sequence)
+
+    app = _build_app()
+    _override_db(app, session)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/local/login",
+                json={
+                    "email": deleted_user.email,
+                    "password": "Mentors123!",
+                },
+            )
+
+            assert response.status_code == 403
+            assert response.json()["code"] == "forbidden"
+            assert response.json()["message"] == "Account deleted"
+    finally:
+        app.dependency_overrides.clear()
+
+
 def test_google_callback_redirects_to_app_with_token(monkeypatch) -> None:
     auth_router = importlib.import_module("core.auth.router")
     session = _FakeSession()
@@ -537,6 +571,127 @@ def test_google_callback_redirects_to_app_with_token(monkeypatch) -> None:
             parsed = urlparse(location)
             assert parsed.scheme == "mentors"
             assert parsed.netloc == "auth"
+            query = parse_qs(parsed.query)
+            assert "token" in query
+            assert query["is_new"] == ["1"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_google_callback_redirects_deleted_account_error_to_app(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    session = _FakeSession()
+    deleted_user = User(
+        id=92,
+        email="deleted-google@example.com",
+        nickname="deleted-google",
+        status="deleted",
+    )
+    session.seed_user(deleted_user)
+    session.seed_identity(user_id=92, provider="google", provider_user_id="deleted-google-sub")
+
+    cache = _FakeStateCache()
+    cache.values["state:test-state"] = json.dumps({"return_to": "mentors://auth"})
+
+    async def _fake_exchange_code(_code: str):
+        return auth_router.GoogleUserInfo(
+            sub="deleted-google-sub",
+            email=deleted_user.email,
+            name="deleted-google",
+        )
+
+    async def _fake_publish(_event) -> None:
+        raise AssertionError("deleted accounts should not publish login side effects")
+
+    monkeypatch.setattr(auth_router, "_sync_pk_sequence", _noop_sync_pk_sequence)
+    monkeypatch.setattr(auth_router, "_state_cache", cache)
+    monkeypatch.setattr(auth_router, "exchange_code", _fake_exchange_code)
+    monkeypatch.setattr(auth_router.event_bus, "publish", _fake_publish)
+
+    app = _build_app()
+    _override_db(app, session)
+
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/auth/google/callback",
+                params={"code": "oauth-code", "state": "test-state"},
+                follow_redirects=False,
+            )
+
+            assert response.status_code == 302
+            query = parse_qs(urlparse(response.headers["location"]).query)
+            assert query["error"] == ["Account deleted"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_google_login_accepts_expo_go_return_to(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    cache = _FakeStateCache()
+
+    monkeypatch.setattr(auth_router, "_state_cache", cache)
+    monkeypatch.setattr(auth_router, "generate_state", lambda: "expo-state")
+    monkeypatch.setattr(
+        auth_router,
+        "get_authorization_url",
+        lambda state: f"https://accounts.example.test/oauth?state={state}",
+    )
+
+    with TestClient(_build_app()) as client:
+        response = client.get(
+            "/auth/google/login",
+            params={"return_to": "exp://192.168.0.26:8081/--/auth"},
+            follow_redirects=False,
+        )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://accounts.example.test/oauth?state=expo-state"
+    assert json.loads(cache.values["state:expo-state"]) == {
+        "return_to": "exp://192.168.0.26:8081/--/auth"
+    }
+
+
+def test_google_callback_redirects_to_expo_go_url_with_token(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    session = _FakeSession()
+    cache = _FakeStateCache()
+    cache.values["state:test-state"] = json.dumps(
+        {"return_to": "exp://192.168.0.26:8081/--/auth"}
+    )
+
+    async def _fake_exchange_code(_code: str):
+        return auth_router.GoogleUserInfo(
+            sub="google-sub-exp",
+            email="expo-go@example.com",
+            name="expo-go-user",
+        )
+
+    async def _fake_publish(_event) -> None:
+        return None
+
+    monkeypatch.setattr(auth_router, "_sync_pk_sequence", _noop_sync_pk_sequence)
+    monkeypatch.setattr(auth_router, "_state_cache", cache)
+    monkeypatch.setattr(auth_router, "exchange_code", _fake_exchange_code)
+    monkeypatch.setattr(auth_router.event_bus, "publish", _fake_publish)
+
+    app = _build_app()
+    _override_db(app, session)
+
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/auth/google/callback",
+                params={"code": "oauth-code", "state": "test-state"},
+                follow_redirects=False,
+            )
+
+            assert response.status_code == 302
+            location = response.headers["location"]
+            parsed = urlparse(location)
+            assert parsed.scheme == "exp"
+            assert parsed.netloc == "192.168.0.26:8081"
+            assert parsed.path == "/--/auth"
             query = parse_qs(parsed.query)
             assert "token" in query
             assert query["is_new"] == ["1"]
@@ -644,6 +799,88 @@ def test_google_callback_attaches_identity_to_existing_email_only_user(monkeypat
                 == existing_user.id
             )
             assert published_events == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_google_mobile_login_returns_token(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    session = _FakeSession()
+
+    async def _fake_verify_google_id_token(*, id_token: str):
+        assert id_token == "mobile-id-token"
+        return auth_router.GoogleUserInfo(
+            sub="mobile-google-sub",
+            email="mobile-login@example.com",
+            name="mobile-login-user",
+        )
+
+    async def _fake_publish(_event) -> None:
+        return None
+
+    monkeypatch.setattr(auth_router, "_sync_pk_sequence", _noop_sync_pk_sequence)
+    monkeypatch.setattr(auth_router, "verify_google_id_token", _fake_verify_google_id_token)
+    monkeypatch.setattr(auth_router.event_bus, "publish", _fake_publish)
+
+    app = _build_app()
+    _override_db(app, session)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/google/mobile",
+                json={
+                    "id_token": "mobile-id-token",
+                    "platform": "android",
+                },
+            )
+
+            assert response.status_code == 200
+            body = response.json()
+            user_id = session.users_by_email["mobile-login@example.com"].id
+            assert decode_token(body["access_token"])["sub"] == str(user_id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_google_mobile_login_rejects_deleted_account(monkeypatch) -> None:
+    auth_router = importlib.import_module("core.auth.router")
+    session = _FakeSession()
+    deleted_user = User(
+        id=105,
+        email="deleted-mobile-google@example.com",
+        nickname="deleted-mobile-google",
+        status="deleted",
+    )
+    session.seed_user(deleted_user)
+    session.seed_identity(user_id=105, provider="google", provider_user_id="deleted-mobile-sub")
+
+    async def _fake_verify_google_id_token(*, id_token: str):
+        assert id_token == "mobile-id-token"
+        return auth_router.GoogleUserInfo(
+            sub="deleted-mobile-sub",
+            email=deleted_user.email,
+            name=deleted_user.nickname,
+        )
+
+    monkeypatch.setattr(auth_router, "_sync_pk_sequence", _noop_sync_pk_sequence)
+    monkeypatch.setattr(auth_router, "verify_google_id_token", _fake_verify_google_id_token)
+
+    app = _build_app()
+    _override_db(app, session)
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/auth/google/mobile",
+                json={
+                    "id_token": "mobile-id-token",
+                    "platform": "android",
+                },
+            )
+
+            assert response.status_code == 403
+            assert response.json()["message"] == "Account deleted"
     finally:
         app.dependency_overrides.clear()
 

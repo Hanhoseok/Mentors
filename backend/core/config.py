@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     google_client_id: str
     google_client_secret: str
     google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
+    google_android_client_id: str | None = None
+    google_ios_client_id: str | None = None
 
     llm_provider: Literal["openai", "anthropic", "google"] = "google"
     openai_api_key: str | None = None

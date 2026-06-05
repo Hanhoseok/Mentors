@@ -4,6 +4,7 @@ const {
   buildLearningChatHistoryCards,
   buildLearningChatPreview,
   formatLearningChatDate,
+  keepChatScrollPinnedToBottom,
   parseLearningChatEventBuffer,
   shouldSubmitChatOnKeyPress,
 } = require('../../.tmp-chat/features/chat/logic.js');
@@ -132,5 +133,26 @@ const historyCards = buildLearningChatHistoryCards(
 assert.equal(historyCards.length, 1, 'history card builders should return one card per session');
 assert.equal(historyCards[0].mentor.shortLabel, '성장', 'cards should attach mentor metadata');
 assert.equal(historyCards[0].messageCount, 1, 'cards should report message counts from history');
+
+const scrollCalls = [];
+assert.equal(
+  keepChatScrollPinnedToBottom({
+    scrollToEnd(options) {
+      scrollCalls.push(options);
+    },
+  }),
+  true,
+  'chat helpers should report when they successfully pinned the scroll view to the latest message',
+);
+assert.deepEqual(
+  scrollCalls,
+  [{ animated: true }],
+  'chat helpers should scroll to the bottom with animation by default',
+);
+assert.equal(
+  keepChatScrollPinnedToBottom(null),
+  false,
+  'chat helpers should safely no-op when no scroll view is available yet',
+);
 
 console.log('chat logic tests passed');

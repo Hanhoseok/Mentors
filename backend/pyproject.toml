@@ -41,6 +41,7 @@ dependencies = [
     "lxml>=5.3",
     "trafilatura>=2.0",
     "googlenewsdecoder>=0.1.7",
+    "google-auth>=2.52.0",
 ]
 
 [dependency-groups]

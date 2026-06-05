@@ -26,6 +26,11 @@ export interface AuthTokenResponse {
   expires_in: number;
 }
 
+export interface GoogleMobileLoginRequest {
+  id_token: string;
+  platform: 'android' | 'ios';
+}
+
 export interface DevAccessTokenResponse extends AuthTokenResponse {
   created: boolean;
   user: DevAccessTokenUser;
@@ -42,6 +47,13 @@ export async function localSignup(payload: LocalSignupRequest): Promise<AuthToke
 
 export async function localLogin(payload: LocalLoginRequest): Promise<AuthTokenResponse> {
   const response = await apiClient.post<AuthTokenResponse>('/auth/local/login', payload);
+  return response.data;
+}
+
+export async function mobileGoogleLogin(
+  payload: GoogleMobileLoginRequest,
+): Promise<AuthTokenResponse> {
+  const response = await apiClient.post<AuthTokenResponse>('/auth/google/mobile', payload);
   return response.data;
 }
 

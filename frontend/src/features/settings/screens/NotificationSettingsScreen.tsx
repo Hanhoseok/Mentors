@@ -3,6 +3,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
+import { syncNativePushState } from '@/features/push/bootstrap';
+import { useUserStore } from '@/store/userStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import {
   ensureReminderPermissionsAsync,
@@ -20,6 +22,7 @@ const QUICK_TIMES = ['07:00', '09:00', '12:00', '19:00', '21:00'] as const;
 
 export function NotificationSettingsScreen() {
   const navigation = useNavigation<Nav>();
+  const accessToken = useUserStore((s) => s.accessToken);
 
   const learningReminderEnabled = useSettingsStore((s) => s.learningReminderEnabled);
   const dailyReportReminderEnabled = useSettingsStore((s) => s.dailyReportReminderEnabled);
@@ -37,6 +40,7 @@ export function NotificationSettingsScreen() {
     if (needs) {
       const granted = await ensureReminderPermissionsAsync();
       if (!granted) return;
+      await syncNativePushState(accessToken);
     }
     setLearningEnabled(learning);
     setDailyEnabled(daily);

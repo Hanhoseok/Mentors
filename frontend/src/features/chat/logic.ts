@@ -13,6 +13,10 @@ export interface ChatComposerKeyPress {
   isComposing?: boolean;
 }
 
+export interface ChatScrollHandle {
+  scrollToEnd: (options?: { animated?: boolean }) => void;
+}
+
 function parseStreamBlock(block: string): LearningChatStreamEvent | null {
   const lines = block
     .split(/\r?\n/)
@@ -73,6 +77,18 @@ export function shouldSubmitChatOnKeyPress({
   isComposing = false,
 }: ChatComposerKeyPress): boolean {
   return key === 'Enter' && !shiftKey && !isComposing;
+}
+
+export function keepChatScrollPinnedToBottom(
+  scrollView: ChatScrollHandle | null,
+  animated = true,
+): boolean {
+  if (!scrollView) {
+    return false;
+  }
+
+  scrollView.scrollToEnd({ animated });
+  return true;
 }
 
 export function buildLearningChatPreview(messages: LearningChatMessage[]): string {

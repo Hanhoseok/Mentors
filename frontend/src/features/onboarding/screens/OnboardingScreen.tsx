@@ -14,6 +14,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { colors } from '@/constants/colors';
 import { useUserStore } from '@/store/userStore';
 import { saveOnboardingProfile, saveMentorSelection, getOnboardingStatus } from '../api';
+import { shouldUseLocalOnboardingFallback } from '../flow';
 import type { MentorRecommendation, OnboardingSurvey, OnboardingSyncState } from '../types';
 import {
   ageOptions,
@@ -175,6 +176,7 @@ export function OnboardingScreen() {
   // Results State
   const [recommendedMentors, setRecommendedMentors] = useState<MentorRecommendation[]>([]);
   const [selectedMentorId, setSelectedMentorId] = useState<number | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const profileMutation = useMutation({
     mutationFn: saveOnboardingProfile,
@@ -221,6 +223,7 @@ export function OnboardingScreen() {
 
   async function handleNextStep() {
     if (!isStepValid()) return;
+    setSubmitError(null);
 
     if (step < 6) {
       setStep(step + 1);
@@ -241,6 +244,7 @@ export function OnboardingScreen() {
   }
 
   async function submitSurveyProfile() {
+    setSubmitError(null);
     // Map goals to one of the backend tags
     const mappedGoal = mapGoalToBackend(selectedGoals);
 
@@ -325,6 +329,10 @@ export function OnboardingScreen() {
       setMode('mentor');
     } catch (e) {
       console.warn('API Profile Saving failed. Showing local mock matching instead.', e);
+      if (!shouldUseLocalOnboardingFallback(accessToken)) {
+        setSubmitError('Failed to save onboarding profile. Please try again.');
+        return;
+      }
       // Fallback Local recommendations mock
       const mockRecs = [
         {
@@ -372,6 +380,7 @@ export function OnboardingScreen() {
 
   async function handleSelectMentor() {
     if (!selectedMentorId) return;
+    setSubmitError(null);
 
     try {
       let finalStatus = null;
@@ -399,6 +408,10 @@ export function OnboardingScreen() {
       }
     } catch (e) {
       console.error('Mentor selection failed', e);
+      if (!shouldUseLocalOnboardingFallback(accessToken)) {
+        setSubmitError('Failed to save mentor selection. Please try again.');
+        return;
+      }
       // Fallback complete onboarding locally
       finishOnboarding({
         profile: {
@@ -469,6 +482,7 @@ export function OnboardingScreen() {
             >
               <Text style={styles.subtitle}>{stepSubtitles[step - 1]}</Text>
               <Text style={styles.title}>{stepTitles[step - 1]}</Text>
+              {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
 
               {/* Step 1: Age Selection */}
               {step === 1 && (
@@ -667,6 +681,7 @@ export function OnboardingScreen() {
               <Text style={styles.subtitle}>분석 완료!</Text>
               <Text style={styles.title}>투자 설향 분석 결과로 추천하는 멘토들입니다</Text>
               <Text style={styles.helperText}>같이 학습을 시작할 멘토를 탭하여 선택해 주세요.</Text>
+              {submitError ? <Text style={styles.errorText}>{submitError}</Text> : null}
 
               <View style={styles.mentorList}>
                 {recommendedMentors.map((mentor) => (
@@ -1010,6 +1025,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 20,
+  },
+  errorText: {
+    color: colors.rose,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 16,
   },
   mentorList: {
     gap: 16,

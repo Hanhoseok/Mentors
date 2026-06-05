@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -18,7 +19,7 @@ import {
   type NavigationProp,
   type RouteProp,
 } from '@react-navigation/native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { colors } from '@/constants/colors';
 import {
@@ -33,7 +34,10 @@ import {
   learningChatMentors,
   resolveSuggestedLearningMentorId,
 } from '@/features/chat/data';
-import { shouldSubmitChatOnKeyPress } from '@/features/chat/logic';
+import {
+  keepChatScrollPinnedToBottom,
+  shouldSubmitChatOnKeyPress,
+} from '@/features/chat/logic';
 import type { LearningChatFollowUpQuiz, LearningChatMentorId } from '@/features/chat/types';
 import {
   getCurrentTierQuizzes,
@@ -92,6 +96,7 @@ export function MentorChatScreen() {
   const navigation = useNavigation<NavigationProp<AppStackParamList>>();
   const route = useRoute<MentorChatRoute>();
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
   const accessToken = useUserStore((state) => state.accessToken);
   const onboardingProfile = useUserStore((state) => state.onboardingProfile);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -289,13 +294,26 @@ export function MentorChatScreen() {
   }, [openerQuery.data, selectedMentorId]);
 
   useEffect(() => {
-    scrollViewRef.current?.scrollToEnd({ animated: true });
+    keepChatScrollPinnedToBottom(scrollViewRef.current);
   }, [
     followUpQuiz,
     messagesQuery.data?.messages.length,
     pendingUserMessage,
     streamingAssistantText,
   ]);
+
+  useEffect(() => {
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const subscription = Keyboard.addListener(eventName, () => {
+      setTimeout(() => {
+        keepChatScrollPinnedToBottom(scrollViewRef.current);
+      }, Platform.OS === 'ios' ? 50 : 0);
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   const renderedMessages = useMemo<RenderedMessage[]>(() => {
     const baseMessages: RenderedMessage[] = (messagesQuery.data?.messages ?? []).map((message) => ({
@@ -446,11 +464,17 @@ export function MentorChatScreen() {
     void handleSendMessage();
   }
 
+  function handleComposerFocus() {
+    setTimeout(() => {
+      keepChatScrollPinnedToBottom(scrollViewRef.current);
+    }, 50);
+  }
+
   return (
     <SafeAreaView style={styles.screen}>
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
         {/* 헤더 */}
         <View style={styles.header}>
@@ -755,7 +779,17 @@ export function MentorChatScreen() {
           {chatErrorMessage ? <Text style={styles.errorText}>{chatErrorMessage}</Text> : null}
         </ScrollView>
 
-        <View style={styles.footer}>
+        <View
+          style={[
+            styles.footer,
+            {
+              paddingBottom:
+                Platform.OS === 'ios'
+                  ? Math.max(insets.bottom, 24)
+                  : Math.max(insets.bottom, 16),
+            },
+          ]}
+        >
           <View style={styles.composer}>
             {/* 학습 기록 버튼 — 입력창 왼쪽 */}
             <Pressable
@@ -768,6 +802,10 @@ export function MentorChatScreen() {
               blurOnSubmit={false}
               multiline
               onChangeText={setDraft}
+              onContentSizeChange={() => {
+                keepChatScrollPinnedToBottom(scrollViewRef.current, false);
+              }}
+              onFocus={handleComposerFocus}
               onKeyPress={handleComposerKeyPress}
               placeholder="경제 개념이나 시장 흐름에 대해 질문해 보세요"
               placeholderTextColor="#94A096"

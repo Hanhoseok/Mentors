@@ -11,17 +11,36 @@ import {
   ActivityIndicator,
   Linking,
 } from 'react-native';
+import {
+  GoogleSignin,
+  isCancelledResponse,
+  isErrorWithCode,
+  isSuccessResponse,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { useUserStore } from '@/store/userStore';
-import { localLogin, issueDevAccessToken, getAuthApiErrorMessage } from '../api';
+import {
+  getAuthApiErrorMessage,
+  issueDevAccessToken,
+  localLogin,
+  mobileGoogleLogin,
+} from '../api';
+import {
+  buildGoogleNativeLoginPayload,
+  buildGoogleNativeSigninConfig,
+  buildGoogleLoginStartUrl,
+} from '../oauth';
 import type { AppStackParamList } from '@/navigation/types';
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'http://localhost:8000';
 const DEV_TIERS = ['T1', 'T2', 'T3', 'T4', 'T5'] as const;
 type DevTier = (typeof DEV_TIERS)[number];
+const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ?? '';
+const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ?? '';
 
 export function LoginScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
@@ -34,7 +53,7 @@ export function LoginScreen() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [selectedDevTier, setSelectedDevTier] = useState<DevTier>('T2');
 
-  // 구글 OAuth 콜백: ?token=<jwt> 파라미터가 URL에 있으면 자동 로그인 (웹 전용)
+  // Web OAuth callback: auto-login if the backend redirected back with a JWT.
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     if (typeof window === 'undefined') return;
@@ -44,7 +63,6 @@ export function LoginScreen() {
     const oauthError = params.get('error');
 
     if (token) {
-      // URL 파라미터 정리 후 로그인 처리
       window.history.replaceState({}, '', window.location.pathname);
       resetOnboarding();
       setAccessToken(token);
@@ -75,15 +93,91 @@ export function LoginScreen() {
     }
   }
 
-  function handleGoogleLogin() {
-    // 웹: 현재 URL을 return_to로 전달 → OAuth 완료 후 ?token= 파라미터와 함께 돌아옴
-    if (Platform.OS === 'web' && typeof window !== 'undefined') {
-      const returnTo = window.location.origin + window.location.pathname;
-      window.location.href = `${apiBaseUrl}/auth/google/login?return_to=${encodeURIComponent(returnTo)}`;
+  async function handleGoogleLogin() {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined') {
+        const returnTo = window.location.origin + window.location.pathname;
+        window.location.href = buildGoogleLoginStartUrl(apiBaseUrl, returnTo);
+        return;
+      }
+
+      void Linking.openURL(`${apiBaseUrl}/auth/google/login`);
       return;
     }
-    // 모바일: 기본 브라우저로 열기 (딥링크 미설정 시 제한적)
-    void Linking.openURL(`${apiBaseUrl}/auth/google/login`);
+
+    const nativePlatform =
+      Platform.OS === 'android' ? 'android' : Platform.OS === 'ios' ? 'ios' : null;
+    if (!nativePlatform) {
+      setErrorMsg('이 플랫폼에서는 구글 로그인을 지원하지 않습니다.');
+      return;
+    }
+
+    const nativeSigninConfig = buildGoogleNativeSigninConfig({
+      platform: nativePlatform,
+      webClientId: googleWebClientId,
+      iosClientId: googleIosClientId,
+    });
+    if (!nativeSigninConfig) {
+      setErrorMsg('Google 모바일 로그인이 아직 설정되지 않았습니다.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMsg(null);
+
+    try {
+      GoogleSignin.configure({
+        ...nativeSigninConfig,
+        scopes: ['email', 'profile'],
+      });
+
+      if (nativePlatform === 'android') {
+        await GoogleSignin.hasPlayServices({
+          showPlayServicesUpdateDialog: true,
+        });
+      }
+
+      const signInResponse = await GoogleSignin.signIn();
+      if (isCancelledResponse(signInResponse)) {
+        return;
+      }
+      if (!isSuccessResponse(signInResponse) || !signInResponse.data.idToken) {
+        throw new Error('Google ID token missing from sign-in response.');
+      }
+
+      const response = await mobileGoogleLogin(
+        buildGoogleNativeLoginPayload({
+          idToken: signInResponse.data.idToken,
+          platform: nativePlatform,
+        }),
+      );
+
+      resetOnboarding();
+      setAccessToken(response.access_token);
+    } catch (error) {
+      if (isErrorWithCode(error)) {
+        if (
+          error.code === statusCodes.SIGN_IN_CANCELLED ||
+          error.code === statusCodes.IN_PROGRESS
+        ) {
+          return;
+        }
+
+        if (error.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+          setErrorMsg('Google Play 서비스가 필요합니다.');
+          return;
+        }
+      }
+
+      setErrorMsg(
+        getAuthApiErrorMessage(
+          error,
+          '구글 로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.',
+        ),
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   async function handleLogin() {
@@ -200,7 +294,9 @@ export function LoginScreen() {
             {/* Google Login Button */}
             <Pressable
               disabled={isSubmitting}
-              onPress={handleGoogleLogin}
+              onPress={() => {
+                void handleGoogleLogin();
+              }}
               style={({ pressed }) => [
                 styles.googleButton,
                 isSubmitting && styles.buttonDisabled,

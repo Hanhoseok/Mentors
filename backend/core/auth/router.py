@@ -1,5 +1,6 @@
 import json
 import logging
+from ipaddress import ip_address
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from uuid import uuid4
 
@@ -31,6 +32,7 @@ from .oauth_google import (
     exchange_code,
     generate_state,
     get_authorization_url,
+    verify_google_id_token,
 )
 from .passwords import hash_password, verify_password
 
@@ -89,6 +91,11 @@ class LocalLoginRequest(BaseModel):
     password: str
 
 
+class MobileGoogleLoginRequest(BaseModel):
+    id_token: str
+    platform: str
+
+
 @router.get("/google/login")
 async def google_login(return_to: str | None = Query(default=None)) -> RedirectResponse:
     if return_to is not None and not _is_safe_return_to(return_to):
@@ -119,6 +126,7 @@ async def google_callback(
     try:
         info = await exchange_code(code)
         user, is_new = await _upsert_user(db, info)
+        _ensure_login_allowed(user)
     except DomainError as exc:
         if return_to is not None:
             return RedirectResponse(
@@ -138,6 +146,36 @@ async def google_callback(
             status_code=302,
         )
 
+    return TokenResponse(
+        access_token=token,
+        expires_in=settings.jwt_expire_minutes * 60,
+    )
+
+
+@router.post("/google/mobile", response_model=TokenResponse)
+async def google_mobile_login(
+    req: MobileGoogleLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    if req.platform not in {"android", "ios"}:
+        raise BadRequestError("Unsupported Google mobile platform")
+    info = await verify_google_id_token(id_token=req.id_token)
+    user, is_new = await _upsert_user(db, info)
+    _ensure_login_allowed(user)
+
+    if is_new:
+        await event_bus.publish(UserSignedUpEvent(user_id=UserId(user.id)))
+
+    token = create_access_token(user.id)
+    logger.info(
+        "user_login",
+        extra={
+            "user_id": user.id,
+            "is_new": is_new,
+            "provider": "google-mobile",
+            "platform": req.platform,
+        },
+    )
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -194,6 +232,7 @@ async def local_login(
         raise invalid_credentials_error
     if not verify_password(req.password, credential.password_hash):
         raise invalid_credentials_error
+    _ensure_login_allowed(user)
 
     token = create_access_token(user.id)
     logger.info("user_login", extra={"user_id": user.id, "is_new": False, "provider": "local"})
@@ -462,6 +501,13 @@ def _normalize_email(email: str) -> str:
     return normalized
 
 
+def _ensure_login_allowed(user: User) -> None:
+    if user.status == "suspended":
+        raise ForbiddenError("Account suspended")
+    if user.status == "deleted":
+        raise ForbiddenError("Account deleted")
+
+
 def _validate_signup_password(password: str, password_confirm: str) -> None:
     if len(password) < 8 or not password.strip():
         raise BadRequestError("비밀번호는 8자 이상으로 입력해 주세요.")
@@ -492,9 +538,23 @@ def _is_safe_return_to(return_to: str) -> bool:
     parsed = urlparse(return_to)
     if parsed.scheme == "mentors":
         return parsed.netloc == "auth"
+    if parsed.scheme in {"exp", "exps"}:
+        return _is_safe_expo_return_to(parsed.hostname, parsed.path)
     if parsed.scheme in {"http", "https"}:
         return parsed.hostname in {"localhost", "127.0.0.1"}
     return False
+
+def _is_safe_expo_return_to(hostname: str | None, path: str) -> bool:
+    if hostname is None or path != "/--/auth":
+        return False
+
+    if hostname in {"localhost", "127.0.0.1"}:
+        return True
+
+    try:
+        return ip_address(hostname).is_private
+    except ValueError:
+        return False
 
 
 def _build_return_to_url(

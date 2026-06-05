@@ -1,7 +1,11 @@
+import asyncio
 import secrets
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel
 
 from core.config import settings
@@ -39,36 +43,116 @@ def get_authorization_url(state: str) -> str:
 
 async def exchange_code(code: str) -> GoogleUserInfo:
     async with httpx.AsyncClient(timeout=10.0) as client:
-        try:
-            token_resp = await client.post(
-                GOOGLE_TOKEN_URL,
-                data={
-                    "code": code,
-                    "client_id": settings.google_client_id,
-                    "client_secret": settings.google_client_secret,
-                    "redirect_uri": settings.google_redirect_uri,
-                    "grant_type": "authorization_code",
-                },
-            )
-        except httpx.HTTPError as e:
-            raise ExternalServiceError("Google token exchange failed") from e
+        access_token = await _exchange_access_token(
+            client,
+            data={
+                "code": code,
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "redirect_uri": settings.google_redirect_uri,
+                "grant_type": "authorization_code",
+            },
+        )
+        return await _fetch_userinfo(client, access_token)
 
-        if token_resp.status_code != 200:
-            raise UnauthorizedError("OAuth code exchange failed")
 
-        access_token = token_resp.json().get("access_token")
-        if not access_token:
-            raise UnauthorizedError("No access_token from Google")
+async def exchange_mobile_code(
+    *,
+    code: str,
+    client_id: str,
+    redirect_uri: str,
+    code_verifier: str,
+) -> GoogleUserInfo:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        access_token = await _exchange_access_token(
+            client,
+            data={
+                "code": code,
+                "client_id": client_id,
+                "redirect_uri": redirect_uri,
+                "code_verifier": code_verifier,
+                "grant_type": "authorization_code",
+            },
+        )
+        return await _fetch_userinfo(client, access_token)
 
-        try:
-            userinfo_resp = await client.get(
-                GOOGLE_USERINFO_URL,
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-        except httpx.HTTPError as e:
-            raise ExternalServiceError("Google userinfo fetch failed") from e
 
-        if userinfo_resp.status_code != 200:
-            raise ExternalServiceError("Google userinfo failed")
+async def verify_google_id_token(*, id_token: str) -> GoogleUserInfo:
+    audience = _resolved_google_web_client_id()
+    if audience is None:
+        raise UnauthorizedError("Google mobile login is not configured")
 
-        return GoogleUserInfo.model_validate(userinfo_resp.json())
+    try:
+        claims = await asyncio.to_thread(_verify_google_id_token_sync, id_token, audience)
+    except ValueError as exc:
+        raise UnauthorizedError("Invalid Google ID token") from exc
+
+    email = claims.get("email")
+    sub = claims.get("sub")
+    if not isinstance(email, str) or not email or not isinstance(sub, str) or not sub:
+        raise UnauthorizedError("Google ID token missing required claims")
+
+    return GoogleUserInfo(
+        sub=sub,
+        email=email,
+        email_verified=bool(claims.get("email_verified", False)),
+        name=_optional_string(claims.get("name")),
+        picture=_optional_string(claims.get("picture")),
+    )
+
+
+async def _exchange_access_token(
+    client: httpx.AsyncClient,
+    *,
+    data: dict[str, str],
+) -> str:
+    try:
+        token_resp = await client.post(
+            GOOGLE_TOKEN_URL,
+            data=data,
+        )
+    except httpx.HTTPError as e:
+        raise ExternalServiceError("Google token exchange failed") from e
+
+    if token_resp.status_code != 200:
+        raise UnauthorizedError("OAuth code exchange failed")
+
+    access_token = token_resp.json().get("access_token")
+    if not access_token:
+        raise UnauthorizedError("No access_token from Google")
+
+    return access_token
+
+
+async def _fetch_userinfo(client: httpx.AsyncClient, access_token: str) -> GoogleUserInfo:
+    try:
+        userinfo_resp = await client.get(
+            GOOGLE_USERINFO_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+    except httpx.HTTPError as e:
+        raise ExternalServiceError("Google userinfo fetch failed") from e
+
+    if userinfo_resp.status_code != 200:
+        raise ExternalServiceError("Google userinfo failed")
+
+    return GoogleUserInfo.model_validate(userinfo_resp.json())
+
+
+def _verify_google_id_token_sync(id_token: str, audience: str) -> dict[str, Any]:
+    return dict(
+        google_id_token.verify_oauth2_token(
+            id_token,
+            google_requests.Request(),
+            audience=audience,
+        )
+    )
+
+
+def _resolved_google_web_client_id() -> str | None:
+    normalized = settings.google_client_id.strip()
+    return normalized or None
+
+
+def _optional_string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None

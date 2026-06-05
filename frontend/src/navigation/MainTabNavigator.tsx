@@ -1,10 +1,12 @@
 import { Platform, Text } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import type { MainTabParamList } from './types';
 import { SearchScreen } from '@/features/explore/screens/SearchScreen';
 import { MentorChatScreen } from '@/features/chat/screens/MentorChatScreen';
 import { DebateArenaScreen } from '@/features/debate-arena/screens/DebateArenaScreen';
+import { buildMainTabBarMetrics } from './logic';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -33,6 +35,12 @@ function TabIcon({ name, focused }: { name: keyof MainTabParamList; focused: boo
 }
 
 export function MainTabNavigator() {
+  const insets = useSafeAreaInsets();
+  const tabBarMetrics = buildMainTabBarMetrics({
+    bottomInset: insets.bottom,
+    platform: Platform.OS === 'ios' ? 'ios' : Platform.OS === 'web' ? 'web' : 'android',
+  });
+
   return (
     <Tab.Navigator
       initialRouteName="Search"
@@ -43,9 +51,9 @@ export function MainTabNavigator() {
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
-          height: Platform.OS === 'ios' ? 84 : 72,
-          paddingBottom: Platform.OS === 'ios' ? 24 : 10,
-          paddingTop: 10,
+          height: tabBarMetrics.height,
+          paddingBottom: tabBarMetrics.paddingBottom,
+          paddingTop: tabBarMetrics.paddingTop,
         },
         tabBarLabelStyle: {
           fontSize: 11,
