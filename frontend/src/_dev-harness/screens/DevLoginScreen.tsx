@@ -69,7 +69,8 @@ export function DevLoginScreen() {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRedirectingToGoogle, setIsRedirectingToGoogle] = useState(false);
-  const [selectedDevTier, setSelectedDevTier] = useState<DevTier>('T2');
+  const [selectedDevTier, setSelectedDevTier] = useState<DevTier | null>(null);
+  const [isDevTierPickerOpen, setIsDevTierPickerOpen] = useState(false);
 
   const isSignupMode = mode === 'signup';
   const googleLoginUrl = useMemo(
@@ -188,6 +189,13 @@ export function DevLoginScreen() {
   }
 
   async function handleDevTierLogin() {
+    if (!selectedDevTier) {
+      setErrorMessage('개발자 티어를 먼저 선택해 주세요.');
+      setStatusMessage(null);
+      setIsDevTierPickerOpen(true);
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMessage(null);
     setStatusMessage(null);
@@ -199,6 +207,7 @@ export function DevLoginScreen() {
         tier: selectedDevTier,
       });
       setStatusMessage(`${selectedDevTier} 개발자 계정으로 로그인했어요.`);
+      setIsDevTierPickerOpen(false);
       beginSession(response.access_token);
     } catch (error) {
       setErrorMessage(
@@ -361,48 +370,79 @@ export function DevLoginScreen() {
           {!isSignupMode ? (
             <>
               <View style={styles.devTierPanel}>
-                <Text style={styles.devTierLabel}>개발자 티어</Text>
-                <View style={styles.devTierRow}>
-                  {DEV_TIERS.map((tier) => {
-                    const selected = selectedDevTier === tier;
-                    return (
-                      <Pressable
-                        key={tier}
-                        disabled={isSubmitting || isRedirectingToGoogle}
-                        onPress={() => setSelectedDevTier(tier)}
-                        style={({ pressed }) => [
-                          styles.devTierButton,
-                          selected && styles.devTierButtonSelected,
-                          pressed && !(isSubmitting || isRedirectingToGoogle) && styles.buttonPressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.devTierButtonText,
-                            selected && styles.devTierButtonTextSelected,
+                <View style={styles.devTierActionRow}>
+                  <Pressable
+                    disabled={isSubmitting || isRedirectingToGoogle}
+                    onPress={() => {
+                      void handleDevTierLogin();
+                    }}
+                    style={({ pressed }) => [
+                      styles.devTierLoginButton,
+                      !selectedDevTier && styles.devTierLoginButtonDisabled,
+                      (isSubmitting || isRedirectingToGoogle) && styles.buttonDisabled,
+                      pressed && !(isSubmitting || isRedirectingToGoogle) && styles.buttonPressed,
+                    ]}
+                  >
+                    <Text style={styles.devTierLoginButtonText}>개발자 로그인</Text>
+                  </Pressable>
+                  <Pressable
+                    disabled={isSubmitting || isRedirectingToGoogle}
+                    onPress={() => setIsDevTierPickerOpen((current) => !current)}
+                    style={({ pressed }) => [
+                      styles.devTierToggleButton,
+                      isDevTierPickerOpen && styles.devTierToggleButtonOpen,
+                      (isSubmitting || isRedirectingToGoogle) && styles.buttonDisabled,
+                      pressed && !(isSubmitting || isRedirectingToGoogle) && styles.buttonPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.devTierToggleText,
+                        !selectedDevTier && styles.devTierTogglePlaceholder,
+                      ]}
+                    >
+                      {selectedDevTier ?? '티어선택'}
+                    </Text>
+                    <Text style={styles.devTierChevron}>{isDevTierPickerOpen ? '▲' : '▼'}</Text>
+                  </Pressable>
+                </View>
+                {isDevTierPickerOpen ? (
+                  <ScrollView
+                    nestedScrollEnabled
+                    style={styles.devTierPickerOverlay}
+                    showsVerticalScrollIndicator={false}
+                  >
+                    {DEV_TIERS.map((tier) => {
+                      const selected = selectedDevTier === tier;
+                      return (
+                        <Pressable
+                          key={tier}
+                          disabled={isSubmitting || isRedirectingToGoogle}
+                          onPress={() => {
+                            setSelectedDevTier(tier);
+                            setIsDevTierPickerOpen(false);
+                          }}
+                          style={({ pressed }) => [
+                            styles.devTierOption,
+                            selected && styles.devTierOptionSelected,
+                            pressed &&
+                              !(isSubmitting || isRedirectingToGoogle) &&
+                              styles.buttonPressed,
                           ]}
                         >
-                          {tier}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-                <Pressable
-                  disabled={isSubmitting || isRedirectingToGoogle}
-                  onPress={() => {
-                    void handleDevTierLogin();
-                  }}
-                  style={({ pressed }) => [
-                    styles.devTierLoginButton,
-                    (isSubmitting || isRedirectingToGoogle) && styles.buttonDisabled,
-                    pressed && !(isSubmitting || isRedirectingToGoogle) && styles.buttonPressed,
-                  ]}
-                >
-                  <Text style={styles.devTierLoginButtonText}>
-                    {selectedDevTier} 개발자 로그인
-                  </Text>
-                </Pressable>
+                          <Text
+                            style={[
+                              styles.devTierOptionText,
+                              selected && styles.devTierOptionTextSelected,
+                            ]}
+                          >
+                            {tier}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                ) : null}
               </View>
 
               <Pressable
@@ -639,52 +679,87 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginTop: 12,
     padding: 12,
+    position: 'relative',
+    zIndex: 2,
   },
-  devTierLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  devTierRow: {
+  devTierActionRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 10,
-  },
-  devTierButton: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    flex: 1,
-    justifyContent: 'center',
-    minHeight: 38,
-  },
-  devTierButtonSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  devTierButtonText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  devTierButtonTextSelected: {
-    color: colors.surface,
+    gap: 8,
   },
   devTierLoginButton: {
     alignItems: 'center',
     backgroundColor: colors.primary,
     borderRadius: 12,
+    flex: 3.5,
     justifyContent: 'center',
     minHeight: 44,
     paddingHorizontal: 16,
+  },
+  devTierLoginButtonDisabled: {
+    opacity: 0.72,
   },
   devTierLoginButtonText: {
     color: colors.surface,
     fontSize: 14,
     fontWeight: '800',
+  },
+  devTierToggleButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+    justifyContent: 'center',
+    minHeight: 44,
+    minWidth: 58,
+  },
+  devTierToggleButtonOpen: {
+    borderColor: colors.primary,
+  },
+  devTierToggleText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  devTierTogglePlaceholder: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  devTierChevron: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  devTierPickerOverlay: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    bottom: 56,
+    maxHeight: 132,
+    position: 'absolute',
+    right: 12,
+    width: 68,
+    zIndex: 5,
+  },
+  devTierOption: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 36,
+  },
+  devTierOptionSelected: {
+    backgroundColor: colors.primary,
+  },
+  devTierOptionText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  devTierOptionTextSelected: {
+    color: colors.surface,
   },
   testAccountHint: {
     color: colors.muted,

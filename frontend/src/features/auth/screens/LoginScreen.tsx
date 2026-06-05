@@ -32,7 +32,8 @@ export function LoginScreen() {
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [selectedDevTier, setSelectedDevTier] = useState<DevTier>('T2');
+  const [selectedDevTier, setSelectedDevTier] = useState<DevTier | null>(null);
+  const [isDevTierPickerOpen, setIsDevTierPickerOpen] = useState(false);
 
   // 구글 OAuth 콜백: ?token=<jwt> 파라미터가 URL에 있으면 자동 로그인 (웹 전용)
   useEffect(() => {
@@ -58,6 +59,12 @@ export function LoginScreen() {
   }, [resetOnboarding, setAccessToken]);
 
   async function handleDevBypass() {
+    if (!selectedDevTier) {
+      setErrorMsg('개발자 티어를 먼저 선택해 주세요.');
+      setIsDevTierPickerOpen(true);
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
     try {
@@ -66,6 +73,7 @@ export function LoginScreen() {
         nickname: 'tier-tester',
         tier: selectedDevTier,
       });
+      setIsDevTierPickerOpen(false);
       resetOnboarding();
       setAccessToken(response.access_token);
     } catch {
@@ -221,48 +229,77 @@ export function LoginScreen() {
 
             {/* Developer Bypass */}
             <View style={styles.devTierPanel}>
-              <Text style={styles.devTierLabel}>개발자 티어</Text>
-              <View style={styles.devTierRow}>
-                {DEV_TIERS.map((tier) => {
-                  const selected = selectedDevTier === tier;
-                  return (
-                    <Pressable
-                      key={tier}
-                      disabled={isSubmitting}
-                      onPress={() => setSelectedDevTier(tier)}
-                      style={({ pressed }) => [
-                        styles.devTierButton,
-                        selected && styles.devTierButtonSelected,
-                        pressed && !isSubmitting && styles.buttonPressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.devTierButtonText,
-                          selected && styles.devTierButtonTextSelected,
+              <View style={styles.devTierActionRow}>
+                <Pressable
+                  disabled={isSubmitting}
+                  onPress={() => {
+                    void handleDevBypass();
+                  }}
+                  style={({ pressed }) => [
+                    styles.devBypassButton,
+                    !selectedDevTier && styles.devBypassButtonDisabled,
+                    isSubmitting && styles.buttonDisabled,
+                    pressed && !isSubmitting && styles.buttonPressed,
+                  ]}
+                >
+                  <Text style={styles.devBypassButtonText}>개발자 모드 로그인</Text>
+                </Pressable>
+                <Pressable
+                  disabled={isSubmitting}
+                  onPress={() => setIsDevTierPickerOpen((current) => !current)}
+                  style={({ pressed }) => [
+                    styles.devTierToggleButton,
+                    isDevTierPickerOpen && styles.devTierToggleButtonOpen,
+                    isSubmitting && styles.buttonDisabled,
+                    pressed && !isSubmitting && styles.buttonPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.devTierToggleText,
+                      !selectedDevTier && styles.devTierTogglePlaceholder,
+                    ]}
+                  >
+                    {selectedDevTier ?? '티어선택'}
+                  </Text>
+                  <Text style={styles.devTierChevron}>{isDevTierPickerOpen ? '▲' : '▼'}</Text>
+                </Pressable>
+              </View>
+              {isDevTierPickerOpen ? (
+                <ScrollView
+                  nestedScrollEnabled
+                  style={styles.devTierPickerOverlay}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {DEV_TIERS.map((tier) => {
+                    const selected = selectedDevTier === tier;
+                    return (
+                      <Pressable
+                        key={tier}
+                        disabled={isSubmitting}
+                        onPress={() => {
+                          setSelectedDevTier(tier);
+                          setIsDevTierPickerOpen(false);
+                        }}
+                        style={({ pressed }) => [
+                          styles.devTierOption,
+                          selected && styles.devTierOptionSelected,
+                          pressed && !isSubmitting && styles.buttonPressed,
                         ]}
                       >
-                        {tier}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-              <Pressable
-                disabled={isSubmitting}
-                onPress={() => {
-                  void handleDevBypass();
-                }}
-                style={({ pressed }) => [
-                  styles.devBypassButton,
-                  isSubmitting && styles.buttonDisabled,
-                  pressed && !isSubmitting && styles.buttonPressed,
-                ]}
-              >
-                <Text style={styles.devBypassButtonText}>
-                  [개발자 모드] {selectedDevTier}로 로그인
-                </Text>
-              </Pressable>
+                        <Text
+                          style={[
+                            styles.devTierOptionText,
+                            selected && styles.devTierOptionTextSelected,
+                          ]}
+                        >
+                          {tier}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
             </View>
           </View>
         </ScrollView>
@@ -439,39 +476,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     marginTop: 16,
     padding: 12,
+    position: 'relative',
+    zIndex: 2,
   },
-  devTierLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  devTierRow: {
+  devTierActionRow: {
     flexDirection: 'row',
-    gap: 6,
-    marginBottom: 10,
-  },
-  devTierButton: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    flex: 1,
-    height: 38,
-    justifyContent: 'center',
-  },
-  devTierButtonSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  devTierButtonText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  devTierButtonTextSelected: {
-    color: colors.surface,
+    gap: 8,
   },
   devBypassButton: {
     alignItems: 'center',
@@ -479,12 +489,74 @@ const styles = StyleSheet.create({
     borderColor: '#E7EAE7',
     borderRadius: 12,
     borderWidth: 1,
+    flex: 3.5,
     height: 48,
     justifyContent: 'center',
+  },
+  devBypassButtonDisabled: {
+    opacity: 0.72,
   },
   devBypassButtonText: {
     color: colors.muted,
     fontSize: 13,
     fontWeight: '700',
+  },
+  devTierToggleButton: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    flex: 1,
+    flexDirection: 'row',
+    gap: 4,
+    height: 48,
+    justifyContent: 'center',
+    minWidth: 58,
+  },
+  devTierToggleButtonOpen: {
+    borderColor: colors.primary,
+  },
+  devTierToggleText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  devTierTogglePlaceholder: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  devTierChevron: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  devTierPickerOverlay: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    bottom: 58,
+    position: 'absolute',
+    right: 12,
+    maxHeight: 132,
+    width: 68,
+    zIndex: 5,
+  },
+  devTierOption: {
+    alignItems: 'center',
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  devTierOptionSelected: {
+    backgroundColor: colors.primary,
+  },
+  devTierOptionText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  devTierOptionTextSelected: {
+    color: colors.surface,
   },
 });
