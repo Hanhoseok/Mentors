@@ -22,12 +22,14 @@ import { DebateHistoryScreen } from '../features/debate-arena/screens/DebateHist
 import { DebateSessionDetailScreen } from '../features/debate-arena/screens/DebateSessionDetailScreen';
 import { SearchResultScreen } from '../features/explore/screens/SearchResultScreen';
 import { RssArticleSummaryScreen } from '../features/explore/screens/RssArticleSummaryScreen';
+import { InAppBrowserScreen } from '../features/explore/screens/InAppBrowserScreen';
 import { ScrapScreen } from '../features/scrap/screens/ScrapScreen';
 import { ScrapFolderScreen } from '../features/scrap/screens/ScrapFolderScreen';
 import { InterestSettingsScreen } from '../features/settings/screens/InterestSettingsScreen';
 import { SettingsScreen } from '../features/settings/screens/SettingsScreen';
 import { NotificationSettingsScreen } from '../features/settings/screens/NotificationSettingsScreen';
 import { AccountSettingsScreen } from '../features/settings/screens/AccountSettingsScreen';
+import { NotificationsScreen } from '../features/notifications/screens/NotificationsScreen';
 import { MainTabNavigator } from './MainTabNavigator';
 import type { AppStackParamList } from './types';
 
@@ -103,12 +105,14 @@ export function RootNavigator() {
           <Stack.Screen name="DebateSessionDetail" component={DebateSessionDetailScreen} />
           <Stack.Screen name="SearchResult" component={SearchResultScreen} />
           <Stack.Screen name="RssArticleSummary" component={RssArticleSummaryScreen} />
+          <Stack.Screen name="InAppBrowser" component={InAppBrowserScreen} />
           <Stack.Screen name="Scrap" component={ScrapScreen} />
           <Stack.Screen name="ScrapFolder" component={ScrapFolderScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationSettingsScreen} />
           <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} />
           <Stack.Screen name="InterestSettings" component={InterestSettingsScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
         </>
       )}
     </Stack.Navigator>

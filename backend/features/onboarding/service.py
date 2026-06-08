@@ -141,7 +141,11 @@ async def select_onboarding_mentor(
     if mentor is None:
         raise BadRequestError("Unknown mentor_id.")
 
-    profile.current_tier = Tier.T1.value
+    # 재온보딩(멘토 재선택) 시 기존 티어/성장도를 유지한다.
+    # 최초 온보딩이면 프로필 생성 시 값(T1)이 그대로 보존된다.
+    preserved_tier = _coerce_tier(profile.current_tier) or Tier.T1
+
+    profile.current_tier = preserved_tier.value
     profile.selected_mentor_id = mentor.id
     profile.selected_mentor_slug = mentor.slug
     profile.onboarding_completed_at = datetime.now(UTC)
@@ -151,14 +155,14 @@ async def select_onboarding_mentor(
     await event_bus.publish(
         OnboardingCompletedEvent(
             user_id=user_id,
-            initial_tier=Tier.T1,
+            initial_tier=preserved_tier,
             selected_mentor_id=MentorId(mentor.id),
         )
     )
 
     return OnboardingStatusResponse(
         onboarded=True,
-        tier=Tier.T1,
+        tier=preserved_tier,
         profile=_build_profile_summary_from_model(profile),
         selected_mentor=SelectedMentorResponse(
             id=mentor.id,
@@ -175,9 +179,12 @@ async def reset_onboarding_profile(
 ) -> OnboardingStatusResponse:
     profile = await _get_profile(db, user_id)
     if profile is None:
-        return OnboardingStatusResponse(onboarded=False, tier=Tier.T1)
+        return OnboardingStatusResponse(onboarded=False, tier=None)
 
-    profile.current_tier = Tier.T1.value
+    # 티어와 성장도는 온보딩 재설정과 무관하게 유지한다.
+    # current_tier 는 절대 T1으로 초기화하지 않는다.
+    preserved_tier = _coerce_tier(profile.current_tier)
+
     profile.selected_mentor_id = None
     profile.selected_mentor_slug = None
     profile.risk_profile = None
@@ -196,7 +203,6 @@ async def reset_onboarding_profile(
         UserUpdatedEvent(
             user_id=user_id,
             fields=[
-                "current_tier",
                 "selected_mentor_id",
                 "selected_mentor_slug",
                 "risk_profile",
@@ -211,7 +217,7 @@ async def reset_onboarding_profile(
 
     return OnboardingStatusResponse(
         onboarded=False,
-        tier=Tier.T1,
+        tier=preserved_tier,
         profile=None,
         selected_mentor=None,
         completed_at=None,

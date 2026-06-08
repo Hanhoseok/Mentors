@@ -124,6 +124,30 @@ async def remove_user_keyword(
     return True
 
 
+# 온보딩 InterestTag → 한글 표시 레이블 매핑
+# frontend/src/features/onboarding/data/surveyData.ts 의 simpleInterestOptions와 동기
+_INTEREST_TAG_KO: dict[str, str] = {
+    "domestic-stock": "국내 주식",
+    "us-stock": "미국·해외 주식",
+    "etf": "ETF·펀드",
+    "crypto": "암호화폐",
+    "it": "IT·테크",
+    "energy": "에너지",
+    "finance": "금융",
+    "bio": "바이오",
+    "defense": "방산",
+    "entertainment-media": "엔터·미디어",
+    "fashion-consumer": "패션·소비재",
+    "macro": "거시경제",
+    # interestCategories 의 backendTag 값들
+    "semiconductor": "반도체",
+    "battery": "배터리",
+    "tech": "테크",
+    "value": "가치주",
+    "global": "글로벌",
+}
+
+
 async def seed_keywords_from_interests(
     db: AsyncSession,
     *,
@@ -133,27 +157,30 @@ async def seed_keywords_from_interests(
     """온보딩 interest 태그 리스트를 사용자 키워드로 시딩 (멱등).
 
     각 interest 태그마다:
-      1. 해당 태그를 MasterKeyword로 get-or-create (source='onboarding')
-      2. UserKeyword 행 추가 (이미 있으면 skip)
+      1. 태그를 한글 레이블로 변환 (ex. 'domestic-stock' → '국내 주식')
+      2. 해당 레이블을 MasterKeyword로 get-or-create (source='onboarding')
+      3. UserKeyword 행 추가 (이미 있으면 skip)
     추가로 등록된 행 수를 반환. 모두 이미 등록되어 있으면 0.
     """
     added = 0
     for raw in interests:
-        tag = raw.strip()
-        if not tag:
+        raw_tag = raw.strip()
+        if not raw_tag:
             continue
+        # 영문 태그를 한글 레이블로 변환 (매핑 없으면 원본 사용)
+        keyword = _INTEREST_TAG_KO.get(raw_tag, raw_tag)
         try:
             user_keyword = await add_user_keyword(
                 db,
                 user_id=user_id,
-                keyword=tag,
-                language="auto",
+                keyword=keyword,
+                language="ko",
                 source="onboarding",
             )
         except Exception:
             logger.exception(
                 "content.seed_keyword_failed",
-                extra={"user_id": user_id, "keyword": tag},
+                extra={"user_id": user_id, "keyword": keyword},
             )
             continue
         if user_keyword is not None:

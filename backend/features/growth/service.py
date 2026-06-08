@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import sqlalchemy as sa
 from sqlalchemy import select
@@ -17,10 +17,15 @@ from core.contracts import (
     Tier,
     UserId,
 )
+from core.db import SessionLocal
 from core.event_bus import event_bus
 from core.exceptions import BadRequestError
+from core.jobs import scheduler
 from core.push import push
 from core.user_context import user_context
+from features.debate.models import DebateSession
+from features.learning.models import ChatSession
+from features.onboarding.models import UserProfile
 
 from .catalog import get_concept_by_id, list_concepts_for_tier, list_promotion_questions
 from .models import ConceptMastery, PromotionTestAttempt, TierState
@@ -45,6 +50,22 @@ _UNLOCKS_BY_TIER: dict[Tier, tuple[str, ...]] = {
     Tier.T3: ("debate_arena", "extra_mentors"),
     Tier.T4: ("debate_arena", "extra_mentors"),
     Tier.T5: ("debate_arena", "extra_mentors"),
+}
+_NOTIFICATION_DELAY = timedelta(hours=3)
+_FEATURE_UNLOCK_NOTIFICATIONS: dict[str, dict[str, str]] = {
+    "debate_arena": {
+        "title": "새 기능이 열렸어요",
+        "body": "멘토 토론 아레나가 열렸어요. 아직 안 써봤다면 지금 바로 들어가 보세요.",
+        "deeplink": "mentors://debate",
+    },
+    "extra_mentors": {
+        "title": "새 멘토가 열렸어요",
+        "body": (
+            "추가 멘토와 대화를 시작할 수 있어요. "
+            "아직 안 써봤다면 멘토 채팅으로 들어가 보세요."
+        ),
+        "deeplink": "mentors://mentor-chat",
+    },
 }
 
 
@@ -111,6 +132,151 @@ def get_next_unlock_codes(tier: Tier) -> list[str]:
 
     current_unlocks = set(_UNLOCKS_BY_TIER[tier])
     return [code for code in _UNLOCKS_BY_TIER[next_tier] if code not in current_unlocks]
+
+
+def _get_new_unlock_codes(previous_tier: Tier, new_tier: Tier) -> list[str]:
+    previous_unlocks = set(_UNLOCKS_BY_TIER[previous_tier])
+    return [code for code in _UNLOCKS_BY_TIER[new_tier] if code not in previous_unlocks]
+
+
+def _schedule_promotion_eligibility_notification(
+    user_id: UserId,
+    current_tier: Tier,
+    eligible_at: datetime,
+) -> None:
+    scheduler.add_job(
+        _deliver_promotion_eligibility_notification,
+        "date",
+        run_date=eligible_at + _NOTIFICATION_DELAY,
+        id=f"growth_promotion_eligible_{int(user_id)}_{current_tier.value}",
+        replace_existing=True,
+        max_instances=1,
+        kwargs={
+            "user_id": int(user_id),
+            "current_tier_value": current_tier.value,
+            "eligible_at_iso": eligible_at.isoformat(),
+        },
+    )
+
+
+def _schedule_feature_unlock_notifications(
+    user_id: UserId,
+    previous_tier: Tier,
+    new_tier: Tier,
+    unlocked_at: datetime,
+) -> None:
+    for feature_code in _get_new_unlock_codes(previous_tier, new_tier):
+        scheduler.add_job(
+            _deliver_feature_unlock_notification,
+            "date",
+            run_date=unlocked_at + _NOTIFICATION_DELAY,
+            id=f"growth_feature_unlock_{feature_code}_{int(user_id)}_{new_tier.value}",
+            replace_existing=True,
+            max_instances=1,
+            kwargs={
+                "user_id": int(user_id),
+                "feature_code": feature_code,
+                "tier_value": new_tier.value,
+                "unlocked_at_iso": unlocked_at.isoformat(),
+            },
+        )
+
+
+async def _deliver_promotion_eligibility_notification(
+    user_id: int,
+    current_tier_value: str,
+    eligible_at_iso: str,
+) -> None:
+    eligible_at = datetime.fromisoformat(eligible_at_iso)
+    current_tier = Tier(current_tier_value)
+    next_tier = current_tier.next
+    if next_tier is None:
+        return
+
+    async with SessionLocal() as session:
+        state = await session.get(TierState, user_id)
+        if state is None or state.current_tier != current_tier.value:
+            return
+        if state.promotion_eligible_at is None:
+            return
+        if (
+            state.last_promotion_attempt_at is not None
+            and state.last_promotion_attempt_at >= eligible_at
+        ):
+            return
+
+    await push.send_to_user(
+        user_id=UserId(user_id),
+        title="승급시험 응시 가능!",
+        body=f"{next_tier.value}로 올라갈 준비가 되었어요.",
+        data={"deeplink": "mentors://promotion-test"},
+    )
+
+
+async def _deliver_feature_unlock_notification(
+    user_id: int,
+    feature_code: str,
+    tier_value: str,
+    unlocked_at_iso: str,
+) -> None:
+    del tier_value
+    notification = _FEATURE_UNLOCK_NOTIFICATIONS.get(feature_code)
+    if notification is None:
+        return
+
+    unlocked_at = datetime.fromisoformat(unlocked_at_iso)
+    async with SessionLocal() as session:
+        state = await session.get(TierState, user_id)
+        if state is None:
+            return
+
+        current_tier = Tier(state.current_tier)
+        if feature_code not in _UNLOCKS_BY_TIER[current_tier]:
+            return
+        if not await _feature_is_still_unused(session, user_id, feature_code, unlocked_at):
+            return
+
+    await push.send_to_user(
+        user_id=UserId(user_id),
+        title=notification["title"],
+        body=notification["body"],
+        data={"deeplink": notification["deeplink"]},
+    )
+
+
+async def _feature_is_still_unused(
+    session: AsyncSession,
+    user_id: int,
+    feature_code: str,
+    unlocked_at: datetime,
+) -> bool:
+    if feature_code == "debate_arena":
+        result = await session.execute(
+            select(DebateSession.id)
+            .where(
+                DebateSession.user_id == user_id,
+                DebateSession.created_at >= unlocked_at,
+            )
+            .limit(1)
+        )
+        return result.scalar_one_or_none() is None
+
+    if feature_code == "extra_mentors":
+        profile = await session.get(UserProfile, user_id)
+        stmt = (
+            select(ChatSession.id)
+            .where(
+                ChatSession.user_id == user_id,
+                ChatSession.created_at >= unlocked_at,
+            )
+            .limit(1)
+        )
+        if profile is not None and profile.selected_mentor_id is not None:
+            stmt = stmt.where(ChatSession.mentor_id != profile.selected_mentor_id)
+        result = await session.execute(stmt)
+        return result.scalar_one_or_none() is None
+
+    return False
 
 
 def grade_promotion_test(current_tier: Tier, answers: dict[str, str]) -> PromotionTestGrade:
@@ -207,6 +373,7 @@ async def submit_promotion_test(
     )
 
     previous_tier = current_tier
+    unlocked_tier: Tier | None = None
     if grade.passed and grade.target_tier is not None:
         state.current_tier = grade.target_tier.value
         state.promotion_eligible_at = None
@@ -220,10 +387,13 @@ async def submit_promotion_test(
             PromotionTestPassedEvent(user_id=user_id, new_tier=grade.target_tier)
         )
         current_tier = grade.target_tier
+        unlocked_tier = grade.target_tier
     else:
         _sync_state_fields(state, snapshot)
 
     await db.commit()
+    if unlocked_tier is not None:
+        _schedule_feature_unlock_notifications(user_id, previous_tier, unlocked_tier, now)
 
     return PromotionTestResponse(
         previous_tier=previous_tier.value,
@@ -293,15 +463,12 @@ async def process_concept_mastered_event(
         and state.promotion_eligible_at is None
     )
     if crossed_threshold:
-        next_tier = current_tier.next
-        assert next_tier is not None
         state.promotion_eligible_at = datetime.now(UTC)
         await event_bus.publish(PromotionEligibleEvent(user_id=user_id, current_tier=current_tier))
-        await push.send_to_user(
-            user_id=user_id,
-            title="승급시험 응시 가능!",
-            body=f"{next_tier.value}로 올라갈 준비가 되었어요.",
-            data={"deeplink": "mentors://promotion-test"},
+        _schedule_promotion_eligibility_notification(
+            user_id,
+            current_tier,
+            state.promotion_eligible_at,
         )
 
     await db.commit()

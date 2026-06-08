@@ -12,10 +12,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.auth.dependencies import get_current_user
 from core.auth.models import User
 from core.contracts import UserId
+from core.db import get_db
+from core.exceptions import NotFoundError
 
 from .models import DailyReport
 from .service import get_or_create_today_report, resolve_strategy
@@ -49,6 +53,24 @@ def _serialize(report: DailyReport) -> DailyReportOut:
     )
 
 
+@router.get("/me/history")
+async def my_report_history(
+    limit: int = 20,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[DailyReportOut]:
+    """내 일일 리포트 목록 (최근 순)."""
+    reports = (
+        await db.execute(
+            select(DailyReport)
+            .where(DailyReport.user_id == int(user.id), DailyReport.status == "ready")
+            .order_by(DailyReport.report_date.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_serialize(r) for r in reports]
+
+
 @router.get("/today")
 async def today_report(user: User = Depends(get_current_user)) -> DailyReportOut:
     """그날 첫 진입 — 선택 멘토 전략의 오늘 리포트를 get-or-create 해서 반환.
@@ -58,4 +80,21 @@ async def today_report(user: User = Depends(get_current_user)) -> DailyReportOut
     user_id = UserId(user.id)
     strategy = await resolve_strategy(user_id)
     report = await get_or_create_today_report(user_id, strategy)
+    return _serialize(report)
+
+
+@router.get("/{report_id}")
+async def report_detail(
+    report_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DailyReportOut:
+    report = await db.scalar(
+        select(DailyReport).where(
+            DailyReport.id == report_id,
+            DailyReport.user_id == int(user.id),
+        )
+    )
+    if report is None:
+        raise NotFoundError("Daily report not found.")
     return _serialize(report)

@@ -17,6 +17,7 @@ import {
 } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
+import { AppIcon } from '@/components/AppIcon';
 import type { AppStackParamList } from '@/navigation/types';
 import { listMyScraps, removeScrap } from '@/features/explore/content/api';
 import type { ScrapResponse } from '@/features/explore/content/types';
@@ -124,7 +125,7 @@ export function ScrapFolderScreen() {
         <View style={styles.centerBox}>
           <Text style={styles.emptyTitle}>이 폴더는 비어 있어요</Text>
           <Text style={styles.emptyDesc}>
-            뉴스 상세에서 🔖 버튼으로 이 폴더에 기사를 담아 보세요.
+            뉴스 상세에서 스크랩 버튼으로 이 폴더에 기사를 담아 보세요.
           </Text>
         </View>
       ) : (
@@ -150,7 +151,7 @@ export function ScrapFolderScreen() {
                       />
                     ) : (
                       <View style={[styles.thumb, styles.thumbEmpty]}>
-                        <Text style={styles.thumbIcon}>📰</Text>
+                        <AppIcon color="#8B9890" name="newspaper-variant-outline" size={22} />
                       </View>
                     )}
                     <View style={styles.cardBody}>
@@ -194,7 +195,7 @@ export function ScrapFolderScreen() {
               />
             ) : (
               <View style={[styles.deleteRowThumb, styles.thumbEmpty]}>
-                <Text style={styles.thumbIcon}>📰</Text>
+                <AppIcon color="#8B9890" name="newspaper-variant-outline" size={20} />
               </View>
             )}
             <View style={styles.deleteRowInfo}>

@@ -1,28 +1,31 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
-  Linking,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
-import { getNewsDetail } from '@/features/explore/content/api';
-import type { NewsArticleResponse } from '@/features/explore/content/types';
+import { IconLabel } from '@/components/AppIcon';
+import { getNewsDetail, listMyScraps, searchNews } from '@/features/explore/content/api';
+import type { NewsArticleResponse, SearchHit } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
-import { TopIconBar } from '@/features/explore/components/TopIconBar';
 import {
   ScrapFolderPicker,
   type ScrapDraft,
 } from '@/features/scrap/components/ScrapFolderPicker';
+import { openInAppBrowser } from '@/utils';
 
 type RouteProps = RouteProp<AppStackParamList, 'RssArticleSummary'>;
+type RssNavigation = NativeStackNavigationProp<AppStackParamList>;
 
 function formatTime(publishedAt: string | null): string {
   if (!publishedAt) return '';
@@ -75,8 +78,9 @@ function buildBodyExcerpt(text: string | null | undefined, maxChars = 480): stri
 }
 
 export function RssArticleSummaryScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<RssNavigation>();
   const route = useRoute<RouteProps>();
+  const insets = useSafeAreaInsets();
   const {
     title,
     url,
@@ -93,6 +97,9 @@ export function RssArticleSummaryScreen() {
   const [error, setError] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [isScrapped, setIsScrapped] = useState(false);
+  const [related, setRelated] = useState<SearchHit[]>([]);
+  const [reloadTick, setReloadTick] = useState(0);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -103,22 +110,65 @@ export function RssArticleSummaryScreen() {
   useEffect(() => {
     if (article_id === undefined) {
       setIsLoading(false);
+      // article_id 없이도 제목으로 관련 기사 검색
+      const query = title.slice(0, 80);
+      if (query) {
+        searchNews(query, 6)
+          .then((res) => {
+            if (mountedRef.current) setRelated(res.results.slice(0, 5));
+          })
+          .catch(() => {});
+      }
       return;
     }
     setIsLoading(true);
     setError(false);
     getNewsDetail(article_id)
-      .then((data) => { if (mountedRef.current) setDetail(data); })
+      .then(async (data) => {
+        if (!mountedRef.current) return;
+        setDetail(data);
+        // 관련 기사: 제목 기반 시맨틱 검색
+        const query = (data.display_title ?? data.title_original ?? title).slice(0, 80);
+        if (query) {
+          searchNews(query, 6)
+            .then((res) => {
+              if (mountedRef.current) {
+                setRelated(res.results.filter((r) => r.article_id !== article_id).slice(0, 5));
+              }
+            })
+            .catch(() => {});
+        }
+      })
       .catch(() => { if (mountedRef.current) setError(true); })
       .finally(() => { if (mountedRef.current) setIsLoading(false); });
-  }, [article_id]);
+  }, [article_id, title, reloadTick]);
 
-  async function openOriginal() {
-    try {
-      if (await Linking.canOpenURL(url)) {
-        await Linking.openURL(url);
-      }
-    } catch { /* ignore */ }
+  // 스크랩 여부 확인 — article_id 또는 url로 매칭. 화면 포커스마다 재확인하여
+  // 스크랩 후 나갔다 들어와도 '저장됨' 상태가 유지되도록 한다.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      listMyScraps({ limit: 200 })
+        .then((scraps) => {
+          if (cancelled) return;
+          const found = scraps.some(
+            (s) =>
+              (article_id !== undefined && s.article_id === article_id) ||
+              (!!url && s.url === url),
+          );
+          setIsScrapped(found);
+        })
+        .catch(() => { /* 조회 실패 시 현재 상태 유지 */ });
+      return () => { cancelled = true; };
+    }, [article_id, url]),
+  );
+
+  function openOriginal() {
+    if (Platform.OS === 'web') {
+      void openInAppBrowser(url);
+      return;
+    }
+    navigation.navigate('InAppBrowser', { url, title: displayTitle });
   }
 
   // 표시 데이터 — detail 우선, 없으면 라우트 파라미터 fallback
@@ -142,6 +192,11 @@ export function RssArticleSummaryScreen() {
   const relevanceInfo = relevance ? RELEVANCE_MAP[relevance] : null;
   const showAnalysis = !!detail && !isLoading;
 
+  // AI 처리 상태 — 요약이 '준비 중'인지(pending/processing) vs 영영 제공 안 되는지
+  // (skipped/failed)를 구분해서 정직하게 안내한다.
+  const aiStatus = detail?.ai_processing_status ?? null;
+  const aiPending = aiStatus === 'pending' || aiStatus === 'processing';
+
   // 스크랩 폴더 저장용 기사 스냅샷
   const scrapCategory =
     (strategies.length > 0 ? STRATEGY_MAP[strategies[0]] ?? strategies[0] : null) ??
@@ -159,21 +214,38 @@ export function RssArticleSummaryScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom']}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       {/* 헤더 */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Text style={styles.backArrow}>←</Text>
         </Pressable>
         <Text style={styles.headerTitle}>AI 요약</Text>
         <View style={styles.headerRight}>
+          {isScrapped ? (
+            <View style={styles.savedBadge}>
+              <IconLabel
+                color={colors.primary}
+                icon="check-circle"
+                iconColor={colors.primary}
+                iconSize={14}
+                label="저장됨"
+                textStyle={styles.savedBadgeText}
+              />
+            </View>
+          ) : null}
           <Pressable
             onPress={() => setPickerOpen(true)}
             style={({ pressed }) => [styles.scrapBtn, pressed && styles.pressed]}
           >
-            <Text style={styles.scrapBtnText}>🔖 스크랩</Text>
+            <IconLabel
+              icon="bookmark"
+              iconColor={colors.text}
+              iconSize={15}
+              label="스크랩 추가"
+              textStyle={styles.scrapBtnText}
+            />
           </Pressable>
-          <TopIconBar showProfile={false} />
         </View>
       </View>
 
@@ -329,9 +401,21 @@ export function RssArticleSummaryScreen() {
             <Text style={styles.errorText}>
               요약을 불러오지 못했어요. 원문을 직접 확인해 주세요.
             </Text>
+          ) : aiPending ? (
+            <View style={styles.statusBox}>
+              <Text style={styles.statusText}>
+                AI가 이 기사의 요약을 준비하고 있어요. 잠시 후 다시 확인해 주세요.
+              </Text>
+              <Pressable
+                onPress={() => setReloadTick((t) => t + 1)}
+                style={({ pressed }) => [styles.recheckBtn, pressed && styles.pressed]}
+              >
+                <Text style={styles.recheckBtnText}>다시 확인</Text>
+              </Pressable>
+            </View>
           ) : (
-            <Text style={styles.errorText}>
-              아직 AI 요약이 준비되지 않았어요.
+            <Text style={styles.statusMutedText}>
+              이 뉴스는 신뢰도가 낮아 AI 요약을 제공하지 않아요. 아래 원문에서 내용을 확인해 주세요.
             </Text>
           )}
         </View>
@@ -353,17 +437,72 @@ export function RssArticleSummaryScreen() {
           onPress={openOriginal}
           style={({ pressed }) => [styles.originalBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.originalBtnText}>원문 기사 보기 ↗</Text>
+          <IconLabel
+            color={colors.primary}
+            icon="open-in-new"
+            iconColor={colors.primary}
+            iconSize={16}
+            label="원문 기사 보기"
+            textStyle={styles.originalBtnText}
+          />
         </Pressable>
+
+        {/* 관련 기사 — SearchScreen 카드 스타일 */}
+        {related.length > 0 ? (
+          <>
+            <Text style={styles.relatedSectionTitle}>관련 기사</Text>
+            <View style={styles.relatedList}>
+              {related.map((item) => (
+                <Pressable
+                  key={item.article_id}
+                  onPress={() =>
+                    navigation.push('NewsDetail', { newsId: item.article_id })
+                  }
+                  style={({ pressed }) => [styles.relatedCard, pressed && styles.pressed]}
+                >
+                  {item.image_url ? (
+                    <Image
+                      source={{ uri: item.image_url }}
+                      style={styles.relatedThumb}
+                      resizeMode="cover"
+                    />
+                  ) : null}
+                  <View style={styles.relatedCardBody}>
+                    <View style={styles.relatedCardTop}>
+                      <View style={styles.relatedBadgeRow}>
+                        {item.source_name ? (
+                          <View style={styles.relatedBadge}>
+                            <Text style={styles.relatedBadgeText}>{item.source_name}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      <Text style={styles.relatedTime}>{formatTime(item.published_at)}</Text>
+                    </View>
+                    <Text numberOfLines={2} style={styles.relatedTitle}>
+                      {item.title}
+                    </Text>
+                    {item.summary ? (
+                      <Text numberOfLines={3} style={styles.relatedSummary}>
+                        {item.summary}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.relatedLink}>AI 요약 보기 →</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : null}
       </ScrollView>
 
       <ScrapFolderPicker
         visible={pickerOpen}
         draft={scrapDraft}
         onClose={() => setPickerOpen(false)}
-        onScrapped={(folderName) =>
-          Alert.alert('스크랩 완료', `'${folderName}' 폴더에 저장했어요.`)
-        }
+        onScrapped={(folderName) => {
+          setIsScrapped(true);
+          Alert.alert('스크랩 완료', `'${folderName}' 폴더에 저장했어요.`);
+        }}
       />
     </SafeAreaView>
   );
@@ -380,7 +519,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
     flexDirection: 'row',
-    height: 56,
+    minHeight: 56,
+    paddingBottom: 12,
     paddingHorizontal: 16,
   },
   backBtn: {
@@ -395,6 +535,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: colors.text,
+    flexShrink: 1,
     fontSize: 17,
     fontWeight: '800',
     marginLeft: 4,
@@ -411,6 +552,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: 99,
     flexDirection: 'row',
+    flexShrink: 0,
     height: 40,
     justifyContent: 'center',
     paddingHorizontal: 14,
@@ -648,6 +790,34 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     lineHeight: 20,
   },
+  statusBox: {
+    gap: 12,
+  },
+  statusText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 21,
+  },
+  statusMutedText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 21,
+  },
+  recheckBtn: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary,
+    borderRadius: 99,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
+  },
+  recheckBtnText: {
+    color: colors.surface,
+    fontSize: 13,
+    fontWeight: '800',
+  },
   bodyCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -686,11 +856,102 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     height: 50,
     justifyContent: 'center',
+    marginBottom: 32,
   },
   originalBtnText: {
     color: colors.primary,
     fontSize: 15,
     fontWeight: '700',
+  },
+  // ── 스크랩 '저장됨' 배지 (스크랩 추가 버튼 왼쪽) ──
+  savedBadge: {
+    alignItems: 'center',
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+    borderRadius: 99,
+    borderWidth: 1,
+    flexDirection: 'row',
+    flexShrink: 0,
+    height: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  savedBadgeText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  // ── 관련 기사 (SearchScreen 카드 스타일) ──
+  relatedSectionTitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 12,
+    marginTop: 8,
+  },
+  relatedList: {
+    gap: 10,
+  },
+  relatedCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  relatedThumb: {
+    aspectRatio: 16 / 9,
+    backgroundColor: '#EDF0ED',
+    width: '100%',
+  },
+  relatedCardBody: {
+    gap: 8,
+    padding: 14,
+  },
+  relatedCardTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  relatedBadgeRow: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  relatedBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#3E654F',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  relatedBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  relatedTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
+  relatedSummary: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  relatedTime: {
+    color: colors.muted,
+    flexShrink: 0,
+    fontSize: 11,
+  },
+  relatedLink: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
   },
   pressed: {
     opacity: 0.85,

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import { useNavigation, type NavigationProp } from '@react-navigation/native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigation, useFocusEffect, type NavigationProp } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
+import { AppIcon, IconLabel } from '@/components/AppIcon';
 import { getGrowthApiErrorMessage, getGrowthProgress } from '@/features/growth/api';
 import type { GrowthProgressResponse } from '@/features/growth/types';
 import {
@@ -12,10 +13,14 @@ import {
   submitLearningQuiz,
 } from '@/features/learning/api';
 import type {
+  DailyReportCard,
   LearningQuiz,
   SubmitLearningQuizRequest,
   SubmitLearningQuizResponse,
 } from '@/features/learning/types';
+import { listMyReports } from '@/features/report/api';
+import { listDebateSessions } from '@/features/debate-arena/api';
+import type { DebateSessionSummary } from '@/features/debate-arena/types';
 import { useUserStore } from '@/store/userStore';
 import {
   buildGrowthProgressQueryKey,
@@ -24,6 +29,7 @@ import {
   getLearningRecordSegments,
   type LearningRecordSegmentKey,
 } from '@/features/growth/logic';
+import { useInAppNotificationStore } from '@/store/inAppNotificationStore';
 import type { AppStackParamList } from '@/navigation/types';
 
 // ──────────────────────────────────────────────
@@ -190,30 +196,38 @@ function InfoCard({ title, description }: { title: string; description: string }
   );
 }
 
-// 리포트 탭 (모크 데이터)
-function ReportTab({ onNavigateToDebate }: { onNavigateToDebate: () => void }) {
-  const reports = [
-    {
-      id: '1',
-      date: '2026-05-30',
-      title: '금리 인하 기대와 성장주의 관계',
-      mentor: '가치투자 멘토',
-      summary: '미 연준의 금리 정책 변화가 성장주 밸류에이션에 미치는 영향을 분석했습니다.',
-    },
-    {
-      id: '2',
-      date: '2026-05-29',
-      title: '안전마진을 활용한 저평가 기업 발굴',
-      mentor: '모멘텀 멘토',
-      summary: '내재가치 대비 충분한 안전마진을 가진 종목을 찾는 방법을 정리했습니다.',
-    },
-  ];
+const STRATEGY_LABELS: Record<string, string> = {
+  value: '가치투자',
+  growth: '성장투자',
+  dividend: '배당투자',
+  momentum: '모멘텀투자',
+};
+
+function formatReportDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// 리포트 탭 (실제 API)
+function ReportTab({
+  reports,
+  isLoading,
+  onOpen,
+}: {
+  reports: DailyReportCard[];
+  isLoading: boolean;
+  onOpen: (report: DailyReportCard) => void;
+}) {
+  if (isLoading) {
+    return <View style={styles.loadingBox}><ActivityIndicator color={colors.primary} /></View>;
+  }
 
   if (reports.length === 0) {
     return (
       <InfoCard
         title="아직 저장된 리포트가 없어요"
-        description="멘토 채팅을 하면 대화 내용 기반으로 리포트가 생성될 예정이에요."
+        description="매일 아침 시장 흐름 요약 리포트가 생성돼요. 앱을 열면 자동으로 쌓입니다."
       />
     );
   }
@@ -223,33 +237,59 @@ function ReportTab({ onNavigateToDebate }: { onNavigateToDebate: () => void }) {
       {reports.map((report) => (
         <Pressable
           key={report.id}
+          onPress={() => onOpen(report)}
           style={({ pressed }) => [styles.card, styles.reportCard, pressed && { opacity: 0.9 }]}
         >
           <View style={styles.reportHeader}>
-            <Text style={styles.reportMentor}>{report.mentor}</Text>
-            <Text style={styles.reportDate}>{report.date}</Text>
+            <Text style={styles.reportMentor}>
+              {STRATEGY_LABELS[report.mentor_strategy] ?? report.mentor_strategy} · {report.tier}
+            </Text>
+            <Text style={styles.reportDate}>{formatReportDate(report.report_date)}</Text>
           </View>
-          <Text style={styles.reportTitle}>{report.title}</Text>
-          <Text style={styles.reportSummary} numberOfLines={2}>{report.summary}</Text>
+          <Text style={styles.reportTitle} numberOfLines={2}>
+            {report.body ? report.body.slice(0, 60).replace(/\n/g, ' ') + (report.body.length > 60 ? '…' : '') : '리포트 준비 중'}
+          </Text>
+          {report.highlights.length > 0 && (
+            <Text style={styles.reportSummary} numberOfLines={1}>
+              하이라이트 {report.highlights.length}건
+            </Text>
+          )}
         </Pressable>
       ))}
     </>
   );
 }
 
-// 투기장 탭 (모크 데이터)
-function ArenaTab({ onNavigateToArena }: { onNavigateToArena: () => void }) {
-  const records = [
-    {
-      id: '1',
-      date: '2026-05-28',
-      topic: '금리 인상기에 성장주 vs 가치주 어느 쪽이 유리한가',
-      mentorA: '가치투자',
-      mentorB: '모멘텀',
-    },
-  ];
+function formatArenaDate(dateStr: string | null): string {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const now = Date.now();
+  const diff = now - d.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days === 0) return '오늘';
+  if (days === 1) return '어제';
+  if (days < 7) return `${days}일 전`;
+  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
+}
 
-  if (records.length === 0) {
+// 투기장 탭 (실제 API)
+function ArenaTab({
+  sessions,
+  isLoading,
+  onOpenSession,
+  onNavigateToArena,
+}: {
+  sessions: DebateSessionSummary[];
+  isLoading: boolean;
+  onOpenSession: (sessionId: number) => void;
+  onNavigateToArena: () => void;
+}) {
+  if (isLoading) {
+    return <View style={styles.loadingBox}><ActivityIndicator color={colors.primary} /></View>;
+  }
+
+  if (sessions.length === 0) {
     return (
       <InfoCard
         title="아직 투기장 기록이 없어요"
@@ -260,22 +300,29 @@ function ArenaTab({ onNavigateToArena }: { onNavigateToArena: () => void }) {
 
   return (
     <>
-      {records.map((record) => (
+      {sessions.map((session) => (
         <Pressable
-          key={record.id}
-          onPress={onNavigateToArena}
+          key={session.id}
+          onPress={() => onOpenSession(session.id)}
           style={({ pressed }) => [styles.card, styles.arenaCard, pressed && { opacity: 0.9 }]}
         >
           <View style={styles.arenaHeader}>
             <View style={styles.arenaVsRow}>
-              <Text style={styles.arenaMentor}>{record.mentorA}</Text>
-              <Text style={styles.arenaVs}>⚔️</Text>
-              <Text style={styles.arenaMentor}>{record.mentorB}</Text>
+              <Text style={styles.arenaMentor}>{session.persona_a_name}</Text>
+              <AppIcon color={colors.primary} name="sword-cross" size={18} />
+              <Text style={styles.arenaMentor}>{session.persona_b_name}</Text>
             </View>
-            <Text style={styles.reportDate}>{record.date}</Text>
+            <Text style={styles.reportDate}>{formatArenaDate(session.completed_at)}</Text>
           </View>
-          <Text style={styles.arenaTopic}>{record.topic}</Text>
-          <Text style={styles.arenaLink}>기록 보기 →</Text>
+          <Text style={styles.arenaTopic} numberOfLines={2}>{session.topic}</Text>
+          <IconLabel
+            color={colors.primary}
+            icon="open-in-new"
+            iconColor={colors.primary}
+            iconSize={14}
+            label="기록 보기"
+            textStyle={styles.arenaLink}
+          />
         </Pressable>
       ))}
     </>
@@ -296,9 +343,26 @@ export function LearningRecordScreen() {
   const [quizSubmissionByConceptId, setQuizSubmissionByConceptId] = useState<Record<number, QuizSubmissionState>>({});
   const [quizErrorByConceptId, setQuizErrorByConceptId] = useState<Record<number, string>>({});
 
+  const addNotification = useInAppNotificationStore((s) => s.addNotification);
   const growthQueryKey = buildGrowthProgressQueryKey(accessToken);
   const learningQuizzesQueryKey = ['learning-quizzes', accessToken] as const;
+  const reportHistoryQueryKey = ['report-history', accessToken] as const;
+  const arenaSessionsQueryKey = ['debate-sessions', accessToken] as const;
   const prevTierRef = useRef<string | null>(null);
+
+  const reportsQuery = useQuery({
+    queryKey: reportHistoryQueryKey,
+    queryFn: () => listMyReports(),
+    enabled: Boolean(accessToken),
+    retry: 0,
+  });
+
+  const arenaSessionsQuery = useQuery({
+    queryKey: arenaSessionsQueryKey,
+    queryFn: listDebateSessions,
+    enabled: Boolean(accessToken),
+    retry: 0,
+  });
 
   const growthProgressQuery = useQuery({
     queryKey: growthQueryKey,
@@ -327,6 +391,28 @@ export function LearningRecordScreen() {
     }
     prevTierRef.current = currentTier;
   }, [growthProgressQuery.data?.current_tier, queryClient, learningQuizzesQueryKey]);
+
+  // 화면 포커스마다 리포트 목록 갱신 (새 리포트 조회 시 자동 반영)
+  useFocusEffect(
+    useCallback(() => {
+      if (!accessToken) return;
+      void queryClient.invalidateQueries({ queryKey: reportHistoryQueryKey });
+    }, [accessToken, queryClient, reportHistoryQueryKey]),
+  );
+
+  // 승급시험 가능 상태 감지 → 인앱 알림 발화
+  useEffect(() => {
+    const data = growthProgressQuery.data;
+    if (!data) return;
+    if (data.eligible_for_promotion) {
+      addNotification({
+        type: 'promotion_test',
+        title: '승급시험에 응시할 수 있어요!',
+        body: `${data.current_tier} 이해도 게이지를 모두 채웠어요. 지금 바로 ${data.next_tier ?? '다음 티어'}로 승급해 보세요.`,
+        targetScreen: 'PromotionTest',
+      });
+    }
+  }, [growthProgressQuery.data?.eligible_for_promotion, addNotification]);  // eslint-disable-line react-hooks/exhaustive-deps
 
   const submitQuizMutation = useMutation<
     SubmitLearningQuizResponse,
@@ -429,12 +515,6 @@ export function LearningRecordScreen() {
           <View style={styles.headerTextGroup}>
             <Text style={styles.headerTitle}>나의 학습 기록</Text>
           </View>
-          <Pressable
-            onPress={() => navigation.navigate('PromotionTest')}
-            style={({ pressed }) => [styles.headerActionButton, pressed && styles.headerActionButtonPressed]}
-          >
-            <Text style={styles.headerActionButtonText}>승급시험</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -465,7 +545,11 @@ export function LearningRecordScreen() {
 
         {/* 리포트 탭 */}
         {selectedSegment === 'reports' ? (
-          <ReportTab onNavigateToDebate={() => navigation.navigate('MainTabs', { screen: 'DebateArena' })} />
+          <ReportTab
+            reports={reportsQuery.data ?? []}
+            isLoading={reportsQuery.isLoading}
+            onOpen={(report) => navigation.navigate('DailyReportDetail', { report, reportId: report.id })}
+          />
         ) : null}
 
         {/* 퀴즈 탭 */}
@@ -512,7 +596,12 @@ export function LearningRecordScreen() {
 
         {/* 투기장 탭 */}
         {selectedSegment === 'arenas' ? (
-          <ArenaTab onNavigateToArena={() => navigation.navigate('MainTabs', { screen: 'DebateArena' })} />
+          <ArenaTab
+            sessions={arenaSessionsQuery.data?.sessions ?? []}
+            isLoading={arenaSessionsQuery.isLoading}
+            onOpenSession={(sessionId) => navigation.navigate('DebateSessionDetail', { sessionId })}
+            onNavigateToArena={() => navigation.navigate('MainTabs', { screen: 'DebateArena' })}
+          />
         ) : null}
       </ScrollView>
     </SafeAreaView>

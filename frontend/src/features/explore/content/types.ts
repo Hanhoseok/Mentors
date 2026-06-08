@@ -34,6 +34,8 @@ export interface NewsArticleResponse {
   ai_sentiment: Sentiment | null;
   ai_investment_relevance: InvestmentRelevance | null;
   keywords: string[];
+  /** AI 처리 상태: pending|processing|done|skipped|failed */
+  ai_processing_status: string | null;
   display_title: string | null;
   display_summary: string | null;
 }

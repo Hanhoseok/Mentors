@@ -116,7 +116,7 @@ async def list_news(
     min_reliability: int = Query(0, ge=0, le=100),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    sort: str = Query("latest", regex="^(latest|reliability|composite)$"),
+    sort: str = Query("latest", pattern="^(latest|reliability|composite)$"),
 ) -> NewsListResponse:
     """노출 가능 기사 페이징 조회.
 
@@ -373,7 +373,7 @@ async def search_news(
     def _any_field_ilike(terms: list[str]):
         """terms 중 하나라도 모든 필드 중 하나에 매칭되면 True (단일 SQL OR 그룹).
 
-        짧은 영문 약어는 PostgreSQL `~*` 정규식 + `\y` 단어 경계로 매칭해서
+        짧은 영문 약어는 PostgreSQL `~*` 정규식 + `\\y` 단어 경계로 매칭해서
         AI→AIRBUS, ML→WILLIAM 같은 false positive 방지.
         """
         conds = []

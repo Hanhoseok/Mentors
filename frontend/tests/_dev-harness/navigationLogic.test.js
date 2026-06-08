@@ -45,20 +45,41 @@ assert.equal(
 
 assert.deepEqual(
   buildMainTabBarMetrics({ bottomInset: 0, platform: 'android' }),
-  { height: 70, paddingBottom: 12, paddingTop: 10 },
-  'android tabs should keep a minimum gap above the system navigation bar',
+  {
+    height: 58,
+    paddingBottom: 8,
+    paddingTop: 8,
+    marginBottom: 8,
+    marginHorizontal: 14,
+    borderRadius: 24,
+  },
+  'floating tabs should keep a stable card size even without a bottom inset',
 );
 
 assert.deepEqual(
   buildMainTabBarMetrics({ bottomInset: 24, platform: 'android' }),
-  { height: 82, paddingBottom: 24, paddingTop: 10 },
-  'android tabs should expand when the device reports a bottom inset',
+  {
+    height: 58,
+    paddingBottom: 8,
+    paddingTop: 8,
+    marginBottom: 32,
+    marginHorizontal: 14,
+    borderRadius: 24,
+  },
+  'floating tabs should move upward by the reported bottom inset while keeping the same card size',
 );
 
 assert.deepEqual(
   buildMainTabBarMetrics({ bottomInset: 34, platform: 'ios' }),
-  { height: 94, paddingBottom: 34, paddingTop: 10 },
-  'ios tabs should respect the home-indicator safe area',
+  {
+    height: 58,
+    paddingBottom: 8,
+    paddingTop: 8,
+    marginBottom: 42,
+    marginHorizontal: 14,
+    borderRadius: 24,
+  },
+  'floating tabs should respect the home-indicator inset through bottom margin',
 );
 
 console.log('navigation logic tests passed');

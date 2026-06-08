@@ -2,7 +2,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +25,7 @@ import type {
 } from '@/features/explore/content/types';
 import type { IndicatorQuote } from '@/features/explore/market/types';
 import { TopIconBar } from '@/features/explore/components/TopIconBar';
+import { stripUrlsFromText } from '@/utils';
 
 // ── Static fallback data ───────────────────────────────────────────────────────
 
@@ -125,7 +128,7 @@ function navigateToLiveSummary(
     source_name: item.source_name,
     published_at: item.published_at,
     image_url: item.image_url,
-    summary: item.summary_ko,
+    summary: stripUrlsFromText(item.summary_ko),
     content: null,
   });
 }
@@ -156,6 +159,7 @@ export function SearchScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [activeTab, setActiveTab] = useState<ActiveTab>('환율');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
 
   // 주요 뉴스 — 활성 탭(환율/금리/코스피/나스닥) 기반 실시간 RSS + OpenAI 요약
   const [topNews, setTopNews] = useState<LiveTopicNewsItem[]>([]);
@@ -166,6 +170,9 @@ export function SearchScreen() {
 
   // 경제 지수 실시간 데이터
   const [marketQuotes, setMarketQuotes] = useState<Record<string, IndicatorQuote>>({});
+
+  // 당겨서 새로고침
+  const [refreshing, setRefreshing] = useState(false);
 
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -222,6 +229,30 @@ export function SearchScreen() {
     return () => clearInterval(timer);
   }, []);
 
+  // ── 당겨서 새로고침: 지수 + 주요 뉴스 동시 갱신 ──────────────────────────
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setIsLoadingTop(true);
+    try {
+      const [news, market] = await Promise.allSettled([
+        fetchLiveTopicNews(activeTab, 6),
+        getMarketQuotes(),
+      ]);
+      if (!mountedRef.current) return;
+      if (news.status === 'fulfilled') setTopNews(news.value.items);
+      if (market.status === 'fulfilled') {
+        const map: Record<string, IndicatorQuote> = {};
+        for (const q of market.value.quotes) map[q.name] = q;
+        setMarketQuotes(map);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setIsLoadingTop(false);
+        setRefreshing(false);
+      }
+    }
+  }, [activeTab]);
+
   // ── 검색: SearchResultScreen으로 이동 ────────────────────────────────────
   function handleSearch(overrideQuery?: string) {
     const q = (overrideQuery ?? searchQuery).trim();
@@ -231,6 +262,8 @@ export function SearchScreen() {
 
   function handleKeywordPress(keyword: string) {
     setSearchQuery(keyword);
+    setIsSearchFocused(false);
+    Keyboard.dismiss();
     handleSearch(keyword);
   }
 
@@ -246,73 +279,98 @@ export function SearchScreen() {
     : fallback.change;
   const isUp = activeQuote ? activeQuote.is_up : fallback.isUp;
   const color = isUp ? colors.primary : colors.rose;
+
+  // 검색창 드롭다운에는 사용자가 직접 설정한(manual) 관심 키워드만 노출.
+  // 온보딩/자동 시딩(source='onboarding'|'auto')된 과거 키워드는 제외.
+  const myKeywords = userKeywords.filter((uk) => uk.source === 'manual');
   const chartPoints =
     activeQuote && activeQuote.history.length >= 2
       ? historyToChartPoints(activeQuote.history)
       : fallback.points;
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
       {/* ── 헤더: 검색창 + 아이콘 ── */}
       <View style={styles.header}>
-        <View style={styles.searchBar}>
+        <View style={[styles.searchBar, isSearchFocused && styles.searchBarFocused]}>
           <TextInput
-            placeholder="종목, 뉴스, 경제 용어 검색"
+            placeholder="키워드 검색"
             placeholderTextColor="#A4A9A5"
             style={styles.searchInput}
             value={searchQuery}
             onChangeText={setSearchQuery}
             returnKeyType="search"
-            onSubmitEditing={() => handleSearch()}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => {
+              // 키워드 탭이 등록될 시간을 주고 닫음 + 입력값 초기화
+              // (지연을 두어 onSubmit/검색 버튼 onPress가 현재 값을 먼저 읽도록 함)
+              setTimeout(() => {
+                setIsSearchFocused(false);
+                setSearchQuery('');
+              }, 150);
+            }}
+            onSubmitEditing={() => {
+              setIsSearchFocused(false);
+              handleSearch();
+            }}
           />
-          <Pressable
-            onPress={() => handleSearch()}
-            style={({ pressed }) => [styles.searchBtn, pressed && styles.searchBtnPressed]}
-          >
-            <Text style={styles.searchBtnText}>검색</Text>
-          </Pressable>
+          {isSearchFocused ? (
+            <Pressable
+              onPress={() => {
+                setIsSearchFocused(false);
+                Keyboard.dismiss();
+              }}
+              style={styles.cancelBtn}
+            >
+              <Text style={styles.cancelBtnText}>취소</Text>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => handleSearch()}
+              style={({ pressed }) => [styles.searchBtn, pressed && styles.searchBtnPressed]}
+            >
+              <Text style={styles.searchBtnText}>검색</Text>
+            </Pressable>
+          )}
         </View>
 
-        <TopIconBar />
+        {!isSearchFocused ? <TopIconBar /> : null}
       </View>
 
-      {/* ── 사용자 키워드 패널 — 검색창 바로 아래 상시 노출 ── */}
-      <View style={styles.keywordPanel}>
-        <Text style={styles.keywordPanelTitle}>내 관심 키워드</Text>
-        {userKeywords.length === 0 ? (
-          <Pressable
-            onPress={() => navigation.navigate('InterestSettings')}
-            style={({ pressed }) => [
-              styles.keywordPanelEmptyBox,
-              pressed && styles.userKeywordChipPressed,
-            ]}
-          >
-            <Text style={styles.keywordPanelEmpty}>
-              관심사 설정에서 키워드를 추가해 보세요 →
-            </Text>
-          </Pressable>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.keywordPanelRow}
-          >
-            {userKeywords.map((uk) => (
-              <Pressable
-                key={uk.id}
-                onPress={() => handleKeywordPress(uk.keyword)}
-                style={({ pressed }) => [
-                  styles.userKeywordChip,
-                  pressed && styles.userKeywordChipPressed,
-                ]}
-              >
-                <Text style={styles.userKeywordChipText}>{uk.keyword}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        )}
-      </View>
+      {/* ── 관심 키워드 드롭다운 — 검색창 포커스 시 ── */}
+      {isSearchFocused ? (
+        <View style={styles.keywordDropdown}>
+          <Text style={styles.keywordDropdownTitle}>내 관심 키워드</Text>
+          {myKeywords.length === 0 ? (
+            <Pressable
+              onPress={() => {
+                setIsSearchFocused(false);
+                navigation.navigate('InterestSettings');
+              }}
+              style={({ pressed }) => [styles.keywordEmptyRow, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.keywordEmptyText}>
+                관심사 설정에서 키워드를 추가해 보세요 →
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.keywordChipRow}>
+              {myKeywords.map((uk) => (
+                <Pressable
+                  key={uk.id}
+                  onPress={() => handleKeywordPress(uk.keyword)}
+                  style={({ pressed }) => [
+                    styles.userKeywordChip,
+                    pressed && styles.userKeywordChipPressed,
+                  ]}
+                >
+                  <Text style={styles.userKeywordChipText}>{uk.keyword}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      ) : null}
 
       {/* ── 탭 바 ── */}
       <View style={styles.tabBar}>
@@ -330,7 +388,18 @@ export function SearchScreen() {
       </View>
 
       {/* ── 메인 스크롤 ── */}
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
 
         {/* 지표 차트 카드 */}
         <View style={styles.chartCard}>
@@ -374,11 +443,8 @@ export function SearchScreen() {
           </View>
         </View>
 
-        {/* AI 요약 카드 */}
+        {/* 지수 요약 카드 (AI 배지 제거) */}
         <View style={styles.aiCard}>
-          <View style={styles.aiBadge}>
-            <Text style={styles.aiBadgeText}>AI</Text>
-          </View>
           <Text style={styles.aiText}>{fallback.aiSummary}</Text>
         </View>
 
@@ -424,9 +490,9 @@ export function SearchScreen() {
                   <Text numberOfLines={2} style={styles.newsTitle}>
                     {item.title}
                   </Text>
-                  {item.summary_ko ? (
+                  {stripUrlsFromText(item.summary_ko) ? (
                     <Text numberOfLines={3} style={styles.newsSummary}>
-                      {item.summary_ko}
+                      {stripUrlsFromText(item.summary_ko)}
                     </Text>
                   ) : null}
                   <Text style={styles.newsLink}>AI 요약 보기 →</Text>
@@ -478,6 +544,10 @@ const styles = StyleSheet.create({
     paddingLeft: 16,
     paddingRight: 6,
   },
+  searchBarFocused: {
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+  },
   searchInput: {
     color: colors.text,
     flex: 1,
@@ -497,49 +567,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
   },
-  iconRow: {
-    flexDirection: 'row',
-    gap: 8,
+  cancelBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
-  iconBtn: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 99,
-    borderWidth: 1,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+  cancelBtnText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: '600',
   },
-  iconText: {
-    fontSize: 18,
-  },
-  // ── 사용자 키워드 패널 ──
-  keywordPanel: {
+  // ── 관심 키워드 드롭다운 ──
+  keywordDropdown: {
     backgroundColor: colors.surface,
     borderBottomColor: colors.border,
     borderBottomWidth: 1,
-    gap: 8,
-    paddingBottom: 12,
+    gap: 10,
+    paddingBottom: 14,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 10,
   },
-  keywordPanelTitle: {
+  keywordDropdownTitle: {
     color: colors.muted,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
-  keywordPanelEmpty: {
+  keywordEmptyRow: {
+    paddingVertical: 4,
+  },
+  keywordEmptyText: {
     color: colors.muted,
     fontSize: 13,
   },
-  keywordPanelEmptyBox: {
-    paddingVertical: 4,
-  },
-  keywordPanelRow: {
-    alignItems: 'center',
+  keywordChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
-    paddingRight: 16,
   },
   userKeywordChip: {
     backgroundColor: colors.primarySoft,

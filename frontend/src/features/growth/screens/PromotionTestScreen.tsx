@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
@@ -104,6 +105,7 @@ export function PromotionTestScreen() {
   const navigation = useNavigation<PromotionTestNavigation>();
   const accessToken = useUserStore((state) => state.accessToken);
   const queryClient = useQueryClient();
+  const scrollRef = useRef<ScrollView>(null);
   const [answersByQuestionId, setAnswersByQuestionId] = useState<Record<string, string>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [latestResult, setLatestResult] = useState<PromotionTestResponse | null>(null);
@@ -123,6 +125,10 @@ export function PromotionTestScreen() {
     onSuccess: async (result) => {
       setLatestResult(result);
       setSubmitError(null);
+      // 결과가 나오면 상단으로 스크롤
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+      });
       // 성장 진행도 갱신
       await queryClient.invalidateQueries({ queryKey });
       // 승급했으면 새 티어 퀴즈로 교체
@@ -168,7 +174,8 @@ export function PromotionTestScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <SafeAreaView style={styles.safeArea}>
+    <ScrollView ref={scrollRef} contentContainerStyle={styles.container}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backButton}>
           <Text style={styles.backArrow}>←</Text>
@@ -279,12 +286,18 @@ export function PromotionTestScreen() {
         </View>
       ) : null}
     </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   container: {
     padding: 20,
+    paddingBottom: 40,
     backgroundColor: colors.background,
     gap: 16,
   },

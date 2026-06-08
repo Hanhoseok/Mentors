@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { colors } from '@/constants/colors';
+import { AppIcon } from '@/components/AppIcon';
 import {
   addScrap,
   createScrapFolder,
@@ -156,7 +157,7 @@ export function ScrapFolderPicker({ visible, draft, onClose, onScrapped }: Props
                         { backgroundColor: folder.color ?? folderColorAt(idx) },
                       ]}
                     >
-                      <Text style={styles.folderSwatchIcon}>🗂️</Text>
+                      <AppIcon color={colors.surface} name="folder" size={18} />
                     </View>
                     <View style={styles.folderInfo}>
                       <Text style={styles.folderName}>{folder.name}</Text>

@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ActivityIndicator,
   Image,
+  Keyboard,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -10,11 +11,16 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+  type RouteProp,
+} from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
-import { searchNews } from '@/features/explore/content/api';
-import type { SearchHit } from '@/features/explore/content/types';
+import { searchNews, listMyKeywords } from '@/features/explore/content/api';
+import type { SearchHit, UserKeywordResponse } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
 import { TopIconBar } from '@/features/explore/components/TopIconBar';
 
@@ -41,12 +47,27 @@ export function SearchResultScreen() {
   const [results, setResults] = useState<SearchHit[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [userKeywords, setUserKeywords] = useState<UserKeywordResponse[]>([]);
 
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // 관심 키워드 로드 (사용자가 직접 설정한 manual 키워드만 노출)
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      listMyKeywords()
+        .then((d) => { if (active && mountedRef.current) setUserKeywords(d.items); })
+        .catch(() => { if (active && mountedRef.current) setUserKeywords([]); });
+      return () => { active = false; };
+    }, []),
+  );
+
+  const myKeywords = userKeywords.filter((uk) => uk.source === 'manual');
 
   // activeQuery가 바뀔 때마다 검색 (시맨틱 + 키워드 하이브리드)
   useEffect(() => {
@@ -71,8 +92,8 @@ export function SearchResultScreen() {
       });
   }, [activeQuery]);
 
-  function handleSearch() {
-    const q = inputText.trim();
+  function runSearch(rawQuery: string) {
+    const q = rawQuery.trim();
     if (!q) return;
     if (q === activeQuery) {
       // 같은 쿼리 재검색 강제
@@ -81,6 +102,17 @@ export function SearchResultScreen() {
     } else {
       setActiveQuery(q);
     }
+  }
+
+  function handleSearch() {
+    runSearch(inputText);
+  }
+
+  function handleKeywordPress(keyword: string) {
+    setInputText(keyword);
+    setIsSearchFocused(false);
+    Keyboard.dismiss();
+    runSearch(keyword);
   }
 
   function openSummary(item: SearchHit) {
@@ -97,7 +129,7 @@ export function SearchResultScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom']}>
+    <SafeAreaView style={styles.screen}>
       {/* 헤더 — 뒤로가기 + 검색창 */}
       <View style={styles.header}>
         <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -113,6 +145,8 @@ export function SearchResultScreen() {
             returnKeyType="search"
             onSubmitEditing={handleSearch}
             autoFocus={false}
+            onFocus={() => setIsSearchFocused(true)}
+            onBlur={() => setTimeout(() => setIsSearchFocused(false), 150)}
           />
           <Pressable
             onPress={handleSearch}
@@ -123,6 +157,41 @@ export function SearchResultScreen() {
         </View>
         <TopIconBar showProfile={false} />
       </View>
+
+      {/* ── 관심 키워드 드롭다운 — 검색창 포커스 시 ── */}
+      {isSearchFocused ? (
+        <View style={styles.keywordDropdown}>
+          <Text style={styles.keywordDropdownTitle}>내 관심 키워드</Text>
+          {myKeywords.length === 0 ? (
+            <Pressable
+              onPress={() => {
+                setIsSearchFocused(false);
+                navigation.navigate('InterestSettings');
+              }}
+              style={({ pressed }) => [styles.keywordEmptyRow, pressed && { opacity: 0.7 }]}
+            >
+              <Text style={styles.keywordEmptyText}>
+                관심사 설정에서 키워드를 추가해 보세요 →
+              </Text>
+            </Pressable>
+          ) : (
+            <View style={styles.keywordChipRow}>
+              {myKeywords.map((uk) => (
+                <Pressable
+                  key={uk.id}
+                  onPress={() => handleKeywordPress(uk.keyword)}
+                  style={({ pressed }) => [
+                    styles.userKeywordChip,
+                    pressed && styles.userKeywordChipPressed,
+                  ]}
+                >
+                  <Text style={styles.userKeywordChipText}>{uk.keyword}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      ) : null}
 
       {/* 결과 */}
       {isLoading ? (
@@ -252,6 +321,51 @@ const styles = StyleSheet.create({
   },
   searchBtnText: {
     color: colors.surface,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  // ── 관심 키워드 드롭다운 ──
+  keywordDropdown: {
+    backgroundColor: colors.surface,
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    gap: 10,
+    paddingBottom: 14,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  keywordDropdownTitle: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
+  keywordEmptyRow: {
+    paddingVertical: 4,
+  },
+  keywordEmptyText: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  keywordChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  userKeywordChip: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  userKeywordChipPressed: {
+    opacity: 0.8,
+  },
+  userKeywordChipText: {
+    color: colors.primary,
     fontSize: 13,
     fontWeight: '700',
   },

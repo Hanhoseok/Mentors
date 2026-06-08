@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from core.contracts import ConceptId, Tier, UserId
+from core.jobs import scheduler
 from features.growth.models import ConceptMastery
 from features.growth.service import process_concept_mastered_event
 
@@ -40,17 +41,18 @@ class _FakeSession:
 async def test_process_concept_mastered_event_is_idempotent_for_duplicate_event(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    mastered_ids = {1, 2, 3, 4, 5, 6}
+    mastered_ids = {101, 102, 103, 104, 105, 106, 107}
     fake_db = _FakeSession(mastered_ids)
     fake_state = SimpleNamespace(
         current_tier=Tier.T1.value,
         promotion_eligible_at=None,
-        mastered_concepts=6,
-        total_concepts=8,
-        progress_percent=75,
+        mastered_concepts=7,
+        total_concepts=10,
+        progress_percent=70,
     )
     published_events: list[object] = []
     pushed_payloads: list[dict[str, object]] = []
+    scheduled_jobs: list[dict[str, object]] = []
 
     async def fake_ensure_state(*_args: object, **_kwargs: object) -> tuple[object, bool]:
         return fake_state, False
@@ -72,15 +74,27 @@ async def test_process_concept_mastered_event_is_idempotent_for_duplicate_event(
         )
         return 1
 
+    def fake_add_job(func: object, trigger: str, **kwargs: object) -> None:
+        scheduled_jobs.append(
+            {
+                "func": func,
+                "trigger": trigger,
+                "kwargs": kwargs,
+            }
+        )
+
     monkeypatch.setattr("features.growth.service._ensure_tier_state", fake_ensure_state)
     monkeypatch.setattr("features.growth.service._list_mastered_concept_ids", fake_list_mastered)
     monkeypatch.setattr("features.growth.service.event_bus.publish", fake_publish)
     monkeypatch.setattr("features.growth.service.push.send_to_user", fake_push)
+    monkeypatch.setattr(scheduler, "add_job", fake_add_job)
 
-    await process_concept_mastered_event(UserId(1), ConceptId(7), "evt_1", fake_db)
-    await process_concept_mastered_event(UserId(1), ConceptId(7), "evt_1", fake_db)
+    await process_concept_mastered_event(UserId(1), ConceptId(108), "evt_1", fake_db)
+    await process_concept_mastered_event(UserId(1), ConceptId(108), "evt_1", fake_db)
 
-    assert fake_state.progress_percent == 87
+    assert fake_state.progress_percent == 80
     assert fake_state.promotion_eligible_at is not None
     assert len(published_events) == 1
-    assert len(pushed_payloads) == 1
+    assert pushed_payloads == []
+    assert len(scheduled_jobs) == 1
+    assert scheduled_jobs[0]["trigger"] == "date"

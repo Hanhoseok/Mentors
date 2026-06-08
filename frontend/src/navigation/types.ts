@@ -34,6 +34,8 @@ export type AppStackParamList = {
   DebateHistory: undefined;
   DebateSessionDetail: { sessionId: number };
   SearchResult: { query: string };
+  /** 앱 내부 WebView 브라우저 — 원문 기사를 본문 영역 크기로 표시 */
+  InAppBrowser: { url: string; title?: string };
   RssArticleSummary: {
     title: string;
     url: string;
@@ -59,8 +61,10 @@ export type AppStackParamList = {
     folderId: number;
     folderName: string;
   };
+  Notifications: undefined;
   DailyReportDetail: {
-    report: DailyReportCard;
+    report?: DailyReportCard;
+    reportId?: number;
     opener?: string;
   };
 };

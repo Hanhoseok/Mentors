@@ -22,6 +22,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { colors } from '@/constants/colors';
+import { AppIcon, IconLabel } from '@/components/AppIcon';
 import {
   createLearningChatSession,
   getLearningChatApiErrorMessage,
@@ -57,6 +58,7 @@ import {
   applyOptimisticSolvedQuizProgress,
   buildGrowthProgressQueryKey,
 } from '@/features/growth/logic';
+import { TopIconBar } from '@/features/explore/components/TopIconBar';
 import type { AppStackParamList, MainTabParamList } from '@/navigation/types';
 
 type MentorChatRoute = RouteProp<MainTabParamList, 'MentorChat'>;
@@ -97,6 +99,24 @@ export function MentorChatScreen() {
   const route = useRoute<MentorChatRoute>();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const showSub = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hideSub = Keyboard.addListener(hideEvt, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+
   const accessToken = useUserStore((state) => state.accessToken);
   const onboardingProfile = useUserStore((state) => state.onboardingProfile);
   const scrollViewRef = useRef<ScrollView | null>(null);
@@ -374,6 +394,7 @@ export function MentorChatScreen() {
         });
       }
 
+      let assistantText = '';
       await streamLearningChat({
         payload: {
           session_id: resolvedSessionId,
@@ -381,6 +402,7 @@ export function MentorChatScreen() {
         },
         onEvent: (event) => {
           if (event.type === 'delta') {
+            assistantText += event.chunk.delta;
             setStreamingAssistantText((current) => current + event.chunk.delta);
             return;
           }
@@ -391,7 +413,14 @@ export function MentorChatScreen() {
         },
       });
 
-      setChatStatusMessage('멘토 답변이 도착했어요.');
+      if (assistantText.trim()) {
+        setChatStatusMessage('멘토 답변이 도착했어요.');
+      } else {
+        // 스트림은 정상 종료됐지만 본문이 비어 있음 = 보통 백엔드 LLM 호출 실패.
+        setChatErrorMessage(
+          '멘토 답변을 생성하지 못했어요. 잠시 후 다시 시도해 주세요. (문제가 계속되면 AI 서버 상태를 확인해 주세요.)',
+        );
+      }
     } catch (error) {
       setChatErrorMessage(
         getLearningChatApiErrorMessage(
@@ -465,40 +494,23 @@ export function MentorChatScreen() {
   }
 
   function handleComposerFocus() {
-    setTimeout(() => {
-      keepChatScrollPinnedToBottom(scrollViewRef.current);
-    }, 50);
+    // 키보드가 올라오는 동안 여러 번 스크롤해서 입력창/최근 메시지가 항상 보이도록 함
+    [60, 180, 350].forEach((delay) => {
+      setTimeout(() => {
+        keepChatScrollPinnedToBottom(scrollViewRef.current);
+      }, delay);
+    });
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <KeyboardAvoidingView
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+      <View
         style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+              >
         {/* 헤더 */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>멘토 채팅</Text>
-          <View style={styles.headerActionRow}>
-            <Pressable
-              onPress={() => {}}
-              style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
-            >
-              <Text style={styles.headerIconText}>🔔</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {}}
-              style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
-            >
-              <Text style={styles.headerIconText}>📌</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => navigation.navigate('Settings')}
-              style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
-            >
-              <Text style={styles.headerIconText}>👤</Text>
-            </Pressable>
-          </View>
+          <TopIconBar />
         </View>
 
         {/* 성장 게이지바 */}
@@ -519,7 +531,14 @@ export function MentorChatScreen() {
             style={({ pressed }) => [styles.promotionBanner, pressed && styles.pressed]}
           >
             <View style={styles.promotionBannerTextCol}>
-              <Text style={styles.promotionBannerEyebrow}>🎓 승급 자격 충족</Text>
+              <IconLabel
+                color={colors.primary}
+                icon="school"
+                iconColor={colors.primary}
+                iconSize={15}
+                label="승급 자격 충족"
+                textStyle={styles.promotionBannerEyebrow}
+              />
               <Text style={styles.promotionBannerTitle}>
                 {promotionNextTier} 승급시험에 응시할 수 있어요
               </Text>
@@ -532,6 +551,7 @@ export function MentorChatScreen() {
         ) : null}
 
         <ScrollView
+          style={styles.flex}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           ref={scrollViewRef}
@@ -779,24 +799,20 @@ export function MentorChatScreen() {
           {chatErrorMessage ? <Text style={styles.errorText}>{chatErrorMessage}</Text> : null}
         </ScrollView>
 
-        <View
-          style={[
-            styles.footer,
-            {
-              paddingBottom:
-                Platform.OS === 'ios'
-                  ? Math.max(insets.bottom, 24)
-                  : Math.max(insets.bottom, 16),
-            },
-          ]}
-        >
+          <View
+            style={[
+              styles.footer,
+              { bottom: keyboardHeight > 0 ? keyboardHeight + 60 : insets.bottom + 76 },
+            ]}
+          >
+
           <View style={styles.composer}>
             {/* 학습 기록 버튼 — 입력창 왼쪽 */}
             <Pressable
               onPress={() => navigation.navigate('LearningRecord')}
               style={({ pressed }) => [styles.composerIconBtn, pressed && styles.pressed]}
             >
-              <Text style={styles.composerIconText}>📊</Text>
+              <AppIcon color={colors.primary} name="chart-box" size={18} />
             </Pressable>
             <TextInput
               blurOnSubmit={false}
@@ -833,7 +849,7 @@ export function MentorChatScreen() {
             </Pressable>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -859,26 +875,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     color: colors.text,
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '800',
-  },
-  headerActionRow: {
-    flexDirection: 'row',
-    gap: 6,
-    alignItems: 'center',
-  },
-  headerIconBtn: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 99,
-    borderWidth: 1,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  headerIconText: {
-    fontSize: 16,
   },
   growthBar: {
     alignItems: 'center',
@@ -954,7 +952,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     gap: 16,
-    paddingBottom: 20,
+    paddingBottom: 150,
     paddingHorizontal: 16,
     paddingTop: 16,
   },
@@ -1285,18 +1283,20 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   footer: {
-    backgroundColor: colors.surface,
-    borderTopColor: colors.border,
-    borderTopWidth: 1,
-    gap: 12,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 16,
-    paddingHorizontal: 16,
-    paddingTop: 12,
+    position: 'absolute',   // ← 추가
+    left: 0,                // ← 추가
+    right: 0,               // ← 추가
+    backgroundColor: 'transparent',
+    // marginBottom: 6,     // ← 삭제 (bottom 으로 위치를 잡으므로 불필요)
+    paddingBottom: 0,
+    paddingHorizontal: 12,
+    paddingTop: 8,
   },
   composer: {
     alignItems: 'flex-end',
-    backgroundColor: colors.background,
-    borderColor: colors.border,
+    // 그림자(=옆쪽 회색 번짐) 제거 + 깔끔한 테두리 선으로 구분
+    backgroundColor: colors.surface,
+    borderColor: '#D5D9D5',
     borderRadius: 24,
     borderWidth: 1,
     flexDirection: 'row',
@@ -1305,6 +1305,9 @@ const styles = StyleSheet.create({
     paddingLeft: 10,
     paddingRight: 10,
     paddingTop: 10,
+    shadowOpacity: 0,
+    shadowColor: 'transparent',
+    elevation: 0,
   },
   composerIconBtn: {
     alignItems: 'center',
@@ -1316,7 +1319,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     width: 38,
   },
-  composerIconText: { fontSize: 18 },
   input: {
     color: colors.text,
     flex: 1,

@@ -1,11 +1,21 @@
-import { StyleSheet, Text, View, Pressable, ScrollView } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import type { RouteProp } from '@react-navigation/native';
+import { useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import type { AppStackParamList } from '@/navigation/types';
+import { getDailyReport } from '../api';
 import { ReportMarkdown } from '../markdown';
+import { useInAppNotificationStore } from '@/store/inAppNotificationStore';
 
 type DailyReportDetailRouteProp = RouteProp<AppStackParamList, 'DailyReportDetail'>;
 
@@ -27,21 +37,54 @@ function formatReportDate(reportDate: string): string {
 export function DailyReportDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<DailyReportDetailRouteProp>();
-  const { report, opener } = route.params;
+  const opener = route.params.opener;
+  const preloadedReport = route.params.report ?? null;
+  const reportId = route.params.reportId ?? preloadedReport?.id ?? null;
+  const addNotification = useInAppNotificationStore((s) => s.addNotification);
+
+  const reportQuery = useQuery({
+    queryKey: ['daily-report-detail', reportId],
+    queryFn: () => getDailyReport(reportId as number),
+    enabled: preloadedReport == null && reportId != null,
+  });
+  const report = preloadedReport ?? reportQuery.data ?? null;
+
+  // 리포트가 로드되면 인앱 알림 발화 (오늘 첫 진입 시 한 번만)
+  useEffect(() => {
+    if (!report || report.status !== 'done') return;
+    addNotification({
+      type: 'daily_report',
+      title: '일일 리포트가 도착했어요',
+      body: `${STRATEGY_LABELS[report.mentor_strategy] ?? report.mentor_strategy} · ${report.tier} — ${formatReportDate(report.report_date)}`,
+      targetScreen: 'DailyReportDetail',
+      targetParams: { reportId: report.id },
+    });
+  }, [report?.id, addNotification]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!report) {
+    return (
+      <SafeAreaView style={styles.screen}>
+        <Header onBack={() => navigation.goBack()} />
+        <View style={styles.loadingState}>
+          {reportQuery.isError ? (
+            <Text style={styles.pendingText}>리포트를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.</Text>
+          ) : (
+            <>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.pendingText}>불러오는 중...</Text>
+            </>
+          )}
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const strategyLabel = STRATEGY_LABELS[report.mentor_strategy] ?? report.mentor_strategy;
   const isReady = report.status === 'ready';
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={styles.backBtnText}>←</Text>
-          </Pressable>
-          <Text style={styles.headerTitle}>일일 리포트</Text>
-        </View>
-      </View>
+      <Header onBack={() => navigation.goBack()} />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.metaRow}>
@@ -101,6 +144,19 @@ export function DailyReportDetailScreen() {
   );
 }
 
+function Header({ onBack }: { onBack: () => void }) {
+  return (
+    <View style={styles.header}>
+      <View style={styles.headerLeft}>
+        <Pressable onPress={onBack} style={styles.backBtn}>
+          <Text style={styles.backBtnText}>←</Text>
+        </Pressable>
+        <Text style={styles.headerTitle}>일일 리포트</Text>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -134,6 +190,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: colors.text,
+  },
+  loadingState: {
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
   },
   content: {
     paddingHorizontal: 16,

@@ -8,21 +8,21 @@ import {
   Alert,
   Platform,
   ActivityIndicator,
-  Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
+import { IconLabel } from '@/components/AppIcon';
 import type { AppStackParamList } from '@/navigation/types';
-import { getNewsDetail, listNews } from '@/features/explore/content/api';
-import type { NewsArticleResponse } from '@/features/explore/content/types';
-import { TopIconBar } from '@/features/explore/components/TopIconBar';
+import { getNewsDetail, listMyScraps, searchNews } from '@/features/explore/content/api';
+import type { NewsArticleResponse, SearchHit } from '@/features/explore/content/types';
 import {
   ScrapFolderPicker,
   type ScrapDraft,
 } from '@/features/scrap/components/ScrapFolderPicker';
+import { openInAppBrowser } from '@/utils';
 
 type NewsDetailRouteProp = RouteProp<AppStackParamList, 'NewsDetail'>;
 
@@ -39,25 +39,41 @@ function formatPublishedAt(publishedAt: string | null): string {
 export function NewsDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<NewsDetailRouteProp>();
+  const insets = useSafeAreaInsets();
   const { newsId } = route.params;
 
   const [article, setArticle] = useState<NewsArticleResponse | null>(null);
-  const [related, setRelated] = useState<NewsArticleResponse[]>([]);
+  const [related, setRelated] = useState<SearchHit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [isScrapped, setIsScrapped] = useState(false);
 
   useEffect(() => {
     let ignore = false;
     setIsLoading(true);
 
-    Promise.all([
-      getNewsDetail(newsId),
-      listNews({ page_size: 5, sort: 'latest' }),
-    ])
-      .then(([detail, list]) => {
+    getNewsDetail(newsId)
+      .then(async (detail) => {
         if (ignore) return;
         setArticle(detail);
-        setRelated(list.items.filter((item) => item.id !== newsId));
+        // 스크랩 여부 확인
+        try {
+          const scraps = await listMyScraps({ limit: 200 });
+          if (!ignore) {
+            setIsScrapped(scraps.some((s) => s.article_id === newsId));
+          }
+        } catch { /* 조회 실패 시 false 유지 */ }
+        // 관련 뉴스: 제목 기반 시맨틱 검색
+        const query = (detail.display_title ?? detail.title_original ?? '').slice(0, 80);
+        if (query) {
+          searchNews(query, 6)
+            .then((res) => {
+              if (!ignore) {
+                setRelated(res.results.filter((r) => r.article_id !== newsId).slice(0, 5));
+              }
+            })
+            .catch(() => { /* 조용히 실패 */ });
+        }
       })
       .catch(() => {
         if (!ignore) setArticle(null);
@@ -70,11 +86,18 @@ export function NewsDetailScreen() {
   }, [newsId]);
 
   const handleOriginalPress = () => {
-    if (article?.original_url) {
-      void Linking.openURL(article.original_url);
-    } else {
+    if (!article?.original_url) {
       Alert.alert('원본 기사', '원본 URL이 없습니다.');
+      return;
     }
+    if (Platform.OS === 'web') {
+      void openInAppBrowser(article.original_url);
+      return;
+    }
+    navigation.navigate('InAppBrowser', {
+      url: article.original_url,
+      title: article.display_title ?? article.title_original,
+    });
   };
 
   const scrapDraft: ScrapDraft | null = article
@@ -91,9 +114,9 @@ export function NewsDetailScreen() {
     : null;
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right', 'bottom']}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerLeft}>
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Text style={styles.backBtnText}>←</Text>
@@ -101,20 +124,25 @@ export function NewsDetailScreen() {
           <Text style={styles.headerTitle}>뉴스 상세</Text>
         </View>
 
-        <View style={styles.headerRight}>
-          <Pressable
-            onPress={() => setPickerOpen(true)}
-            disabled={!scrapDraft}
-            style={({ pressed }) => [
-              styles.scrapBtn,
-              !scrapDraft && styles.scrapBtnDisabled,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.scrapBtnText}>🔖 스크랩</Text>
-          </Pressable>
-          <TopIconBar showProfile={false} />
-        </View>
+        <Pressable
+          onPress={() => setPickerOpen(true)}
+          disabled={!scrapDraft}
+          style={({ pressed }) => [
+            styles.scrapBtn,
+            isScrapped && styles.scrapBtnSaved,
+            !scrapDraft && styles.scrapBtnDisabled,
+            pressed && styles.pressed,
+          ]}
+        >
+          <IconLabel
+            color={isScrapped ? colors.primary : colors.text}
+            icon={isScrapped ? 'check-circle' : 'bookmark'}
+            iconColor={isScrapped ? colors.primary : colors.text}
+            iconSize={15}
+            label={isScrapped ? '저장됨' : '스크랩'}
+            textStyle={[styles.scrapBtnText, isScrapped && styles.scrapBtnTextSaved]}
+          />
+        </Pressable>
       </View>
 
       {isLoading ? (
@@ -175,40 +203,47 @@ export function NewsDetailScreen() {
           onPress={handleOriginalPress}
           style={({ pressed }) => [styles.originalBtn, pressed && styles.pressed]}
         >
-          <Text style={styles.originalBtnText}>원본 기사 보기</Text>
+          <IconLabel
+            color={colors.primary}
+            icon="open-in-new"
+            iconColor={colors.primary}
+            iconSize={16}
+            label="원본 기사 보기"
+            textStyle={styles.originalBtnText}
+          />
         </Pressable>
 
-        {/* Related News List Section */}
+        {/* 관련 기사 (시맨틱 검색 결과) */}
         {related.length > 0 ? (
           <>
             <Text style={styles.sectionTitle}>관련 기사</Text>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.newsHorizontalList}
-            >
+            <View style={styles.relatedList}>
               {related.map((item) => (
                 <Pressable
-                  key={item.id}
-                  onPress={() => navigation.replace('NewsDetail', { newsId: item.id })}
-                  style={({ pressed }) => [styles.newsCard, pressed && styles.pressed]}
+                  key={item.article_id}
+                  onPress={() => navigation.push('NewsDetail', { newsId: item.article_id })}
+                  style={({ pressed }) => [styles.relatedCard, pressed && styles.pressed]}
                 >
-                  <View style={styles.newsImgPlaceholder}>
-                    <View style={styles.newsBadge}>
-                      <Text style={styles.newsBadgeText}>
-                        {item.strategies[0] ?? '뉴스'}
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.newsCardBody}>
+                  <View style={styles.relatedCardBody}>
+                    {item.source_name ? (
+                      <View style={styles.newsBadge}>
+                        <Text style={styles.newsBadgeText}>{item.source_name}</Text>
+                      </View>
+                    ) : null}
                     <Text numberOfLines={2} style={styles.newsTitle}>
-                      {item.display_title ?? item.title_original}
+                      {item.title}
                     </Text>
+                    {item.summary ? (
+                      <Text numberOfLines={2} style={styles.relatedSummary}>
+                        {item.summary}
+                      </Text>
+                    ) : null}
                     <Text style={styles.newsTime}>{formatPublishedAt(item.published_at)}</Text>
                   </View>
+                  <Text style={styles.relatedChevron}>›</Text>
                 </Pressable>
               ))}
-            </ScrollView>
+            </View>
           </>
         ) : null}
       </ScrollView>
@@ -218,9 +253,10 @@ export function NewsDetailScreen() {
         visible={pickerOpen}
         draft={scrapDraft}
         onClose={() => setPickerOpen(false)}
-        onScrapped={(folderName) =>
-          Alert.alert('스크랩 완료', `'${folderName}' 폴더에 저장했어요.`)
-        }
+        onScrapped={(folderName) => {
+          setIsScrapped(true);
+          Alert.alert('스크랩 완료', `'${folderName}' 폴더에 저장했어요.`);
+        }}
       />
     </SafeAreaView>
   );
@@ -247,7 +283,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 12,
     paddingBottom: 8,
     borderBottomWidth: 1,
     borderColor: colors.border,
@@ -278,36 +313,29 @@ const styles = StyleSheet.create({
   },
   scrapBtn: {
     alignItems: 'center',
-    backgroundColor: colors.primary,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 99,
+    borderWidth: 1.5,
     height: 40,
     justifyContent: 'center',
     paddingHorizontal: 14,
   },
+  scrapBtnSaved: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primary,
+  },
   scrapBtnDisabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   scrapBtnText: {
-    color: colors.surface,
+    color: colors.text,
     fontSize: 13,
+    fontWeight: '700',
+  },
+  scrapBtnTextSaved: {
+    color: colors.primary,
     fontWeight: '800',
-  },
-  iconRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  iconBtn: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 99,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  iconText: {
-    fontSize: 18,
   },
   content: {
     paddingHorizontal: 16,
@@ -419,45 +447,50 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     marginBottom: 12,
   },
-  newsHorizontalList: {
-    gap: 12,
-    paddingBottom: 8,
+  relatedList: {
+    gap: 10,
   },
-  newsCard: {
+  relatedCard: {
+    alignItems: 'center',
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    width: 200,
-    overflow: 'hidden',
-    borderWidth: 1,
     borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 8,
+    padding: 14,
   },
-  newsImgPlaceholder: {
-    backgroundColor: '#EDF0ED',
-    height: 100,
-    padding: 10,
-    justifyContent: 'flex-end',
+  relatedCardBody: {
+    flex: 1,
+    gap: 5,
+  },
+  relatedSummary: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  relatedChevron: {
+    color: colors.muted,
+    fontSize: 22,
+    fontWeight: '300',
   },
   newsBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#3E654F',
+    backgroundColor: colors.primarySoft,
     borderRadius: 4,
     paddingHorizontal: 6,
     paddingVertical: 3,
   },
   newsBadgeText: {
-    color: colors.surface,
+    color: colors.primary,
     fontSize: 10,
     fontWeight: '700',
-  },
-  newsCardBody: {
-    padding: 12,
-    gap: 6,
   },
   newsTitle: {
     color: colors.text,
     fontSize: 14,
     fontWeight: '700',
-    lineHeight: 18,
+    lineHeight: 19,
   },
   newsTime: {
     color: colors.muted,

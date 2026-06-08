@@ -2,10 +2,11 @@ import { Component, type ReactNode } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, type Theme } from '@react-navigation/native';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from '@/api/queryClient';
 import { colors } from '@/constants/colors';
+import { linking } from '@/navigation/linking';
 import { HarnessNavigator } from '@/_dev-harness/HarnessNavigator';
 import { RootNavigator } from '@/navigation/RootNavigator';
 
@@ -14,6 +15,20 @@ import { RootNavigator } from '@/navigation/RootNavigator';
 // false로 설정하면 백엔드 개발자들의 API 검증용 화면(harness)이 보입니다.
 // -------------------------------------------------------------
 const USE_REAL_FRONTEND = true;
+
+// React Navigation 기본 테마 배경은 회색(rgb(242,242,242))이라, 플로팅 하단 탭
+// 주변 여백으로 회색 박스처럼 비친다. 앱 배경색에 맞춰 덮어쓴다.
+const navTheme: Theme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: colors.background,
+    card: colors.surface,
+    border: colors.border,
+    primary: colors.primary,
+    text: colors.text,
+  },
+};
 
 interface AppErrorBoundaryState {
   error: Error | null;
@@ -56,9 +71,10 @@ export default function App() {
     <AppErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <SafeAreaProvider>
-          <NavigationContainer>
+          <NavigationContainer linking={linking} theme={navTheme}>
             {USE_REAL_FRONTEND ? <RootNavigator /> : <HarnessNavigator />}
-            <StatusBar style="auto" />
+            {/* 배경이 항상 밝으므로 어두운 글자로 고정 (auto는 다크모드 기기에서 흰 글자가 됨) */}
+            <StatusBar style="dark" />
           </NavigationContainer>
         </SafeAreaProvider>
       </QueryClientProvider>

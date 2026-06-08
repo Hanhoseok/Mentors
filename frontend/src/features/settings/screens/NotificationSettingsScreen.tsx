@@ -1,6 +1,7 @@
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '@/constants/colors';
 import { syncNativePushState } from '@/features/push/bootstrap';
@@ -19,6 +20,7 @@ import type { AppStackParamList } from '@/navigation/types';
 type Nav = NativeStackNavigationProp<AppStackParamList, 'NotificationSettings'>;
 
 const QUICK_TIMES = ['07:00', '09:00', '12:00', '19:00', '21:00'] as const;
+const SHIFT_STEPS = [-30, -10, -5, 5, 10, 30] as const;
 
 export function NotificationSettingsScreen() {
   const navigation = useNavigation<Nav>();
@@ -30,6 +32,10 @@ export function NotificationSettingsScreen() {
   const setLearningEnabled = useSettingsStore((s) => s.setLearningReminderEnabled);
   const setDailyEnabled = useSettingsStore((s) => s.setDailyReportReminderEnabled);
   const setTime = useSettingsStore((s) => s.setReminderTime);
+
+  // 직접 입력 상태
+  const [editingTime, setEditingTime] = useState(false);
+  const [rawInput, setRawInput] = useState(reminderTime);
 
   async function applyPrefs(
     learning: boolean,
@@ -56,6 +62,26 @@ export function NotificationSettingsScreen() {
   }
   function changeTime(t: string) {
     void applyPrefs(learningReminderEnabled, dailyReportReminderEnabled, formatReminderTime(t));
+  }
+
+  function handleDirectTimeSubmit() {
+    // HH:MM 또는 H:MM 형식 검증
+    const match = /^(\d{1,2}):(\d{2})$/.exec(rawInput.trim());
+    if (!match) {
+      setRawInput(reminderTime);
+      setEditingTime(false);
+      return;
+    }
+    const h = Number(match[1]);
+    const m = Number(match[2]);
+    if (h < 0 || h > 23 || m < 0 || m > 59) {
+      setRawInput(reminderTime);
+      setEditingTime(false);
+      return;
+    }
+    const formatted = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    changeTime(formatted);
+    setEditingTime(false);
   }
 
   return (
@@ -101,21 +127,42 @@ export function NotificationSettingsScreen() {
         {/* 알림 시간 */}
         <Text style={styles.sectionLabel}>알림 시간</Text>
         <View style={styles.card}>
-          <Text style={styles.timeValue}>{formatReminderTime(reminderTime)}</Text>
+          {/* 시간 표시 — 탭하면 직접 입력 모드 */}
+          {editingTime ? (
+            <TextInput
+              style={styles.timeInput}
+              value={rawInput}
+              onChangeText={setRawInput}
+              autoFocus
+              keyboardType="numbers-and-punctuation"
+              placeholder="HH:MM"
+              placeholderTextColor="#A4A9A5"
+              returnKeyType="done"
+              onSubmitEditing={handleDirectTimeSubmit}
+              onBlur={handleDirectTimeSubmit}
+              maxLength={5}
+            />
+          ) : (
+            <Pressable onPress={() => { setRawInput(reminderTime); setEditingTime(true); }}>
+              <Text style={styles.timeValue}>{formatReminderTime(reminderTime)}</Text>
+              <Text style={styles.timeHint}>탭하여 직접 입력</Text>
+            </Pressable>
+          )}
+
+          {/* ±5 / ±10 / ±30 조정 버튼 */}
           <View style={styles.timeAdjustRow}>
-            <Pressable
-              onPress={() => changeTime(shiftReminderTime(reminderTime, -30))}
-              style={({ pressed }) => [styles.adjBtn, pressed && styles.adjBtnPressed]}
-            >
-              <Text style={styles.adjBtnText}>-30분</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => changeTime(shiftReminderTime(reminderTime, 30))}
-              style={({ pressed }) => [styles.adjBtn, pressed && styles.adjBtnPressed]}
-            >
-              <Text style={styles.adjBtnText}>+30분</Text>
-            </Pressable>
+            {SHIFT_STEPS.map((step) => (
+              <Pressable
+                key={step}
+                onPress={() => changeTime(shiftReminderTime(reminderTime, step))}
+                style={({ pressed }) => [styles.adjBtn, pressed && styles.adjBtnPressed]}
+              >
+                <Text style={styles.adjBtnText}>{step > 0 ? `+${step}분` : `${step}분`}</Text>
+              </Pressable>
+            ))}
           </View>
+
+          {/* 즐겨찾기 시간 칩 */}
           <View style={styles.quickRow}>
             {QUICK_TIMES.map((t) => {
               const selected = reminderTime === t;
@@ -193,19 +240,40 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textAlign: 'center',
   },
-  timeAdjustRow: { flexDirection: 'row', gap: 10 },
+  timeHint: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  timeInput: {
+    backgroundColor: colors.background,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    borderWidth: 2,
+    color: colors.primary,
+    fontSize: 36,
+    fontWeight: '800',
+    letterSpacing: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    textAlign: 'center',
+  },
+  timeAdjustRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   adjBtn: {
     alignItems: 'center',
     backgroundColor: colors.background,
     borderColor: colors.border,
     borderRadius: 10,
     borderWidth: 1,
-    flex: 1,
     justifyContent: 'center',
-    paddingVertical: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    minWidth: 52,
   },
   adjBtnPressed: { opacity: 0.8 },
-  adjBtnText: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  adjBtnText: { color: colors.text, fontSize: 13, fontWeight: '700' },
   quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   quickChip: {
     backgroundColor: colors.background,
