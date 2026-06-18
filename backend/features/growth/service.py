@@ -151,6 +151,9 @@ def _schedule_promotion_eligibility_notification(
         id=f"growth_promotion_eligible_{int(user_id)}_{current_tier.value}",
         replace_existing=True,
         max_instances=1,
+        # 배포·다운타임으로 run_date를 놓쳐도 폐기하지 않는다(기본 grace=1s).
+        # 늦게 깨어나도 delivery 함수가 현재 상태를 재검증해 무의미하면 스스로 skip.
+        misfire_grace_time=None,
         kwargs={
             "user_id": int(user_id),
             "current_tier_value": current_tier.value,
@@ -173,6 +176,9 @@ def _schedule_feature_unlock_notifications(
             id=f"growth_feature_unlock_{feature_code}_{int(user_id)}_{new_tier.value}",
             replace_existing=True,
             max_instances=1,
+            # run_date를 놓쳐도 폐기하지 않음(기본 grace=1s). delivery가 미사용
+            # 여부를 재확인하므로, 이미 써본 기능이면 알림은 자동으로 생략된다.
+            misfire_grace_time=None,
             kwargs={
                 "user_id": int(user_id),
                 "feature_code": feature_code,

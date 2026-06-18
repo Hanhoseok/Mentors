@@ -147,12 +147,35 @@ def test_remove_keyword_not_found_returns_404(monkeypatch: pytest.MonkeyPatch) -
 
 
 # ---------------------------------------------------------------------------
-# domain: news detail not visible → 404
+# domain: news detail는 is_visible 무관하게 반환 (검색이 hidden 기사도 노출하므로
+# 상세 클릭 시 404가 나지 않도록 의도적으로 visibility 체크를 제거함 — router 참고)
 # ---------------------------------------------------------------------------
+
+
+class _FakeColumn:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+class _FakeTable:
+    """model_validate의 _from_orm_strategies가 data.__table__.columns를 순회하므로
+    ORM처럼 보이도록 최소 컬럼 메타를 제공."""
+
+    def __init__(self, names: list[str]) -> None:
+        self.columns = [_FakeColumn(n) for n in names]
 
 
 class _FakeArticle:
     """NewsArticleResponse.model_validate가 동작하도록 ORM-like attrs 제공."""
+
+    _COLUMN_NAMES = [
+        "id", "title_original", "title_translated", "summary_ko", "content",
+        "content_translated", "original_url", "source_name", "image_url",
+        "language", "published_at", "reliability_score", "reliability_level",
+        "composite_score", "strategies", "ai_sentiment", "ai_investment_relevance",
+        "ai_keywords", "ai_processing_status", "is_visible",
+    ]
+    __table__ = _FakeTable(_COLUMN_NAMES)
 
     def __init__(self, *, article_id: int, is_visible: bool) -> None:
         from datetime import datetime, timezone
@@ -174,15 +197,36 @@ class _FakeArticle:
         self.ai_sentiment = None
         self.ai_investment_relevance = None
         self.ai_keywords = None
+        self.ai_processing_status = "completed"
         self.is_visible = is_visible
 
 
-def test_get_news_invisible_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
-    """is_visible=False 기사는 404."""
+def test_get_news_returns_article_regardless_of_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """is_visible=False 기사라도 행이 존재하면 200으로 반환한다."""
     from sqlalchemy.ext.asyncio import AsyncSession
 
     async def fake_scalar(self: AsyncSession, *_args: Any, **_kwargs: Any) -> Any:
         return _FakeArticle(article_id=99, is_visible=False)
+
+    monkeypatch.setattr(AsyncSession, "scalar", fake_scalar)
+
+    for client in _build_authed_client():
+        r = client.get("/api/content/news/99")
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == 99
+    assert body["display_title"] == "Test"
+
+
+def test_get_news_missing_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """행이 없으면 404."""
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async def fake_scalar(self: AsyncSession, *_args: Any, **_kwargs: Any) -> Any:
+        return None
 
     monkeypatch.setattr(AsyncSession, "scalar", fake_scalar)
 

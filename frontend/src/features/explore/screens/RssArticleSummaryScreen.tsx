@@ -15,7 +15,7 @@ import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '@/constants/colors';
 import { IconLabel } from '@/components/AppIcon';
-import { getNewsDetail, listMyScraps, searchNews } from '@/features/explore/content/api';
+import { checkScrapExists, getNewsDetail, searchNews } from '@/features/explore/content/api';
 import type { NewsArticleResponse, SearchHit } from '@/features/explore/content/types';
 import type { AppStackParamList } from '@/navigation/types';
 import {
@@ -143,20 +143,14 @@ export function RssArticleSummaryScreen() {
       .finally(() => { if (mountedRef.current) setIsLoading(false); });
   }, [article_id, title, reloadTick]);
 
-  // 스크랩 여부 확인 — article_id 또는 url로 매칭. 화면 포커스마다 재확인하여
-  // 스크랩 후 나갔다 들어와도 '저장됨' 상태가 유지되도록 한다.
+  // 스크랩 여부 확인 — 서버가 article_id/url로 단건 판정(EXISTS). 화면 포커스마다
+  // 재확인하여 스크랩 후 나갔다 들어와도 '저장됨' 상태가 유지되도록 한다.
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
-      listMyScraps({ limit: 200 })
-        .then((scraps) => {
-          if (cancelled) return;
-          const found = scraps.some(
-            (s) =>
-              (article_id !== undefined && s.article_id === article_id) ||
-              (!!url && s.url === url),
-          );
-          setIsScrapped(found);
+      checkScrapExists({ articleId: article_id, url })
+        .then((found) => {
+          if (!cancelled) setIsScrapped(found);
         })
         .catch(() => { /* 조회 실패 시 현재 상태 유지 */ });
       return () => { cancelled = true; };
@@ -196,6 +190,17 @@ export function RssArticleSummaryScreen() {
   // (skipped/failed)를 구분해서 정직하게 안내한다.
   const aiStatus = detail?.ai_processing_status ?? null;
   const aiPending = aiStatus === 'pending' || aiStatus === 'processing';
+
+  // 요약이 없을 때의 안내 문구 — 상태별로 정확하게.
+  // - skipped: 신뢰도가 낮아 요약 대상에서 제외된 DB 기사
+  // - failed:  요약 생성이 실패한 DB 기사
+  // - 그 외(라이브 RSS 등 detail 없음): 신뢰도 언급 없이 원문 안내
+  const noSummaryMessage =
+    aiStatus === 'skipped'
+      ? '이 뉴스는 신뢰도가 낮아 AI 요약을 제공하지 않아요. 아래 원문에서 내용을 확인해 주세요.'
+      : aiStatus === 'failed'
+      ? '요약을 생성하지 못했어요. 아래 원문에서 내용을 확인해 주세요.'
+      : '이 기사는 아직 AI 요약이 없어요. 아래 원문에서 내용을 확인해 주세요.';
 
   // 스크랩 폴더 저장용 기사 스냅샷
   const scrapCategory =
@@ -414,9 +419,7 @@ export function RssArticleSummaryScreen() {
               </Pressable>
             </View>
           ) : (
-            <Text style={styles.statusMutedText}>
-              이 뉴스는 신뢰도가 낮아 AI 요약을 제공하지 않아요. 아래 원문에서 내용을 확인해 주세요.
-            </Text>
+            <Text style={styles.statusMutedText}>{noSummaryMessage}</Text>
           )}
         </View>
 

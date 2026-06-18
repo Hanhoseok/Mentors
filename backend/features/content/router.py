@@ -48,6 +48,7 @@ from .schemas import (
     NewsArticleResponse,
     NewsListResponse,
     ScrapCreateRequest,
+    ScrapExistsResponse,
     ScrapFolderCreateRequest,
     ScrapFolderResponse,
     ScrapResponse,
@@ -768,6 +769,32 @@ async def list_my_scraps(
         await db.execute(stmt.order_by(desc(Scrap.created_at)).limit(limit))
     ).scalars().all()
     return [ScrapResponse.model_validate(s) for s in rows]
+
+
+@router.get("/scraps/exists", response_model=ScrapExistsResponse)
+async def check_scrap_exists(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    article_id: int | None = Query(None, description="DB 기사 id"),
+    url: str | None = Query(None, description="기사 원문 url (live RSS 등 article_id 없는 경우)"),
+) -> ScrapExistsResponse:
+    """이 사용자가 해당 기사를 스크랩했는지 단건 판정.
+
+    article_id 우선, 없으면 url로 매칭. 둘 다 없으면 exists=False.
+    전체 목록 조회 + 클라이언트 매칭(limit 상한에 걸려 누락 가능)을 대체한다.
+    """
+    clauses = []
+    if article_id is not None:
+        clauses.append(Scrap.article_id == article_id)
+    if url:
+        clauses.append(Scrap.url == url)
+    if not clauses:
+        return ScrapExistsResponse(exists=False)
+
+    found = await db.scalar(
+        select(Scrap.id).where(Scrap.user_id == user.id, or_(*clauses)).limit(1)
+    )
+    return ScrapExistsResponse(exists=found is not None)
 
 
 # ---------------------------------------------------------------------------

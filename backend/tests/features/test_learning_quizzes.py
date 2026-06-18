@@ -47,7 +47,7 @@ async def test_recommend_tier_quiz_for_chat_falls_back_when_progress_table_is_mi
     )
 
     assert quiz is not None
-    assert quiz.question_id == "t2-f5"
+    assert quiz.question_id == "t2-f3"  # "한 종목 비중" → 개념 203 → t2-f3
     assert db.rolled_back is True
 
 

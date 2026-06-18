@@ -118,6 +118,25 @@ export async function removeScrap(scrapId: number): Promise<void> {
   await apiClient.delete(`/api/content/scraps/${scrapId}`);
 }
 
+/**
+ * 특정 기사의 스크랩 여부 단건 조회.
+ * 전체 목록을 받아 클라이언트에서 매칭하면 limit 상한(누락)에 걸리므로,
+ * 서버가 article_id/url로 직접 EXISTS 판정한다.
+ */
+export async function checkScrapExists(
+  params: { articleId?: number; url?: string } = {},
+): Promise<boolean> {
+  const { articleId, url } = params;
+  if (articleId == null && !url) return false;
+  const response = await apiClient.get<{ exists: boolean }>('/api/content/scraps/exists', {
+    params: {
+      ...(articleId != null ? { article_id: articleId } : {}),
+      ...(url ? { url } : {}),
+    },
+  });
+  return response.data.exists;
+}
+
 // ---------------------------------------------------------------------------
 // 스크랩 폴더 CRUD
 // ---------------------------------------------------------------------------

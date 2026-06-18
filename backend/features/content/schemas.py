@@ -89,6 +89,9 @@ class NewsArticleResponse(BaseModel):
     ai_sentiment: str | None = None
     ai_investment_relevance: str | None = None
     keywords: list[str] = Field(default_factory=list)
+    # AI 처리 상태: pending|processing|completed|skipped|failed
+    # ('skipped'/'failed'면 요약이 영영 생성되지 않으므로 프론트가 정직하게 안내)
+    ai_processing_status: str | None = None
 
     # 편의 필드 (computed)
     display_title: str | None = None
@@ -201,6 +204,16 @@ class ScrapCreateRequest(BaseModel):
     source_name: str | None = Field(default=None, max_length=200)
     category: str | None = Field(default=None, max_length=100)
     published_at: datetime | None = None
+
+
+class ScrapExistsResponse(BaseModel):
+    """특정 기사(article_id 또는 url)의 스크랩 여부 단건 조회 결과.
+
+    전체 목록을 받아 클라이언트에서 매칭하면 limit 상한에 걸려 누락될 수 있어,
+    서버에서 EXISTS로 정확히 판정한다.
+    """
+
+    exists: bool
 
 
 class ScrapResponse(BaseModel):

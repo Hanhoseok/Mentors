@@ -3,6 +3,7 @@
 FCM_CREDENTIALS_PATH 미설정 시 모든 send는 no-op (로그만). dev에서 푸시 끄기 가능.
 """
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from typing import Any
@@ -94,7 +95,9 @@ class Push:
                 notification=messaging.Notification(title=title, body=body),
                 data=data or {},
             )
-            response = messaging.send_each_for_multicast(message)
+            # firebase_admin은 동기 블로킹 SDK라 이벤트 루프를 멈추지 않게
+            # 워커 스레드로 오프로드한다 (FCM HTTP 전송 동안 다른 요청 처리 유지).
+            response = await asyncio.to_thread(messaging.send_each_for_multicast, message)
         except Exception:
             logger.exception("push.send_failed", extra={"token_count": len(tokens)})
             return 0

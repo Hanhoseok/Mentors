@@ -1029,13 +1029,25 @@ def _published_timestamp(doc: Document) -> float:
     value = str(doc.metadata.get("published_at") or "").strip()
     if not value:
         return 0.0
-    try:
-        parsed = parsedate_to_datetime(value)
-    except (TypeError, ValueError, IndexError):
+    parsed = _parse_published(value)
+    if parsed is None:
         return 0.0
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.timestamp()
+
+
+def _parse_published(value: str) -> datetime | None:
+    """published_at은 소스별로 포맷이 다르다 — RSS(news_search)는 RFC2822 pubDate,
+    content 뉴스(content_reader)는 ISO 8601(isoformat). 둘 다 처리한다."""
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        pass
+    try:
+        return parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 async def _extract_debate_topic(user_input: str) -> str:
