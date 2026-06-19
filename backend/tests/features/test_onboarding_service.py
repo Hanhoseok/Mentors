@@ -25,19 +25,19 @@ def test_recommend_mentors_prefers_buffett_for_steady_value_profile() -> None:
     assert recommendations[0].reason
 
 
-def test_recommend_mentors_prefers_dalio_for_macro_balanced_profile() -> None:
+def test_recommend_mentors_prefers_bogle_for_dividend_balanced_profile() -> None:
     profile = OnboardingProfileRequest(
-        experience_level="exploring",
-        interests=["macro", "etf"],
+        experience_level="steady-builder",
+        interests=["dividend", "etf", "long-term"],
         risk_profile="balanced",
-        learning_goal="understand-news",
-        preferred_style="structured",
+        learning_goal="protect-capital",
+        preferred_style="patient",
     )
 
     recommendations = recommend_mentors(profile)
 
-    assert recommendations[0].slug == "ray-dalio"
-    assert recommendations[0].name == "레이 달리오"
+    assert recommendations[0].slug == "john-bogle"
+    assert recommendations[0].name == "존 보글"
 
 
 def test_get_mentor_by_id_returns_none_for_unknown_id() -> None:
