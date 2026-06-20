@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   content: {
-    paddingBottom: 24,
+    paddingBottom: 125,
     paddingHorizontal: 16,
     paddingTop: 16,
   },

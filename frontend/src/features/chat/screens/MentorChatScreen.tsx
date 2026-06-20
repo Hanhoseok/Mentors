@@ -552,7 +552,10 @@ export function MentorChatScreen() {
 
         <ScrollView
           style={styles.flex}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            keyboardHeight > 0 && { paddingBottom: keyboardHeight + 140 },
+          ]}
           keyboardShouldPersistTaps="handled"
           ref={scrollViewRef}
           showsVerticalScrollIndicator={false}
@@ -952,7 +955,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     gap: 16,
-    paddingBottom: 150,
+    // 떠 있는 입력창(footer) 높이만큼 확보해 마지막 답변이 가리지 않게 함
+    paddingBottom: 210,
     paddingHorizontal: 16,
     paddingTop: 16,
   },

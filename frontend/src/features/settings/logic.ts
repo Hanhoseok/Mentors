@@ -72,6 +72,43 @@ export function formatReminderTime(value: string): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
+/**
+ * 사용자가 직접 입력한 시간 문자열을 HH:MM로 정규화한다.
+ * 콜론 유무 모두 허용한다: "9", "09", "900", "0900", "1830", "9:00", "09:00", "18:30".
+ * 유효하지 않으면 null.
+ */
+export function normalizeReminderTimeInput(raw: string): string | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  let hour: number;
+  let minute: number;
+
+  const colon = /^(\d{1,2}):(\d{1,2})$/.exec(trimmed);
+  if (colon) {
+    hour = Number(colon[1]);
+    minute = Number(colon[2]);
+  } else {
+    // 콜론이 없으면 숫자만 허용 (그 외 문자가 섞이면 거부)
+    if (!/^\d+$/.test(trimmed)) return null;
+    if (trimmed.length <= 2) {
+      hour = Number(trimmed); // "9" / "09" → 정시
+      minute = 0;
+    } else if (trimmed.length === 3) {
+      hour = Number(trimmed.slice(0, 1)); // "930" → 9:30
+      minute = Number(trimmed.slice(1));
+    } else if (trimmed.length === 4) {
+      hour = Number(trimmed.slice(0, 2)); // "0930" / "1830"
+      minute = Number(trimmed.slice(2));
+    } else {
+      return null;
+    }
+  }
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 export function shiftReminderTime(value: string, minuteDelta: number): string {
   const { hour, minute } = parseReminderTime(value);
   const baseMinutes = hour * 60 + minute;

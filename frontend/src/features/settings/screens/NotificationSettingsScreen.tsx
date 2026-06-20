@@ -13,14 +13,13 @@ import {
 } from '@/features/settings/notifications';
 import {
   formatReminderTime,
-  shiftReminderTime,
+  normalizeReminderTimeInput,
 } from '@/features/settings/logic';
 import type { AppStackParamList } from '@/navigation/types';
 
 type Nav = NativeStackNavigationProp<AppStackParamList, 'NotificationSettings'>;
 
-const QUICK_TIMES = ['07:00', '09:00', '12:00', '19:00', '21:00'] as const;
-const SHIFT_STEPS = [-30, -10, -5, 5, 10, 30] as const;
+const QUICK_TIMES = ['09:00', '12:00', '18:00', '21:00'] as const;
 
 export function NotificationSettingsScreen() {
   const navigation = useNavigation<Nav>();
@@ -65,22 +64,13 @@ export function NotificationSettingsScreen() {
   }
 
   function handleDirectTimeSubmit() {
-    // HH:MM 또는 H:MM 형식 검증
-    const match = /^(\d{1,2}):(\d{2})$/.exec(rawInput.trim());
-    if (!match) {
+    // 콜론 유무 모두 허용 (예: "0900", "900", "9", "09:00")
+    const normalized = normalizeReminderTimeInput(rawInput);
+    if (normalized) {
+      changeTime(normalized);
+    } else {
       setRawInput(reminderTime);
-      setEditingTime(false);
-      return;
     }
-    const h = Number(match[1]);
-    const m = Number(match[2]);
-    if (h < 0 || h > 23 || m < 0 || m > 59) {
-      setRawInput(reminderTime);
-      setEditingTime(false);
-      return;
-    }
-    const formatted = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-    changeTime(formatted);
     setEditingTime(false);
   }
 
@@ -135,7 +125,6 @@ export function NotificationSettingsScreen() {
               onChangeText={setRawInput}
               autoFocus
               keyboardType="numbers-and-punctuation"
-              placeholder="HH:MM"
               placeholderTextColor="#A4A9A5"
               returnKeyType="done"
               onSubmitEditing={handleDirectTimeSubmit}
@@ -148,19 +137,6 @@ export function NotificationSettingsScreen() {
               <Text style={styles.timeHint}>탭하여 직접 입력</Text>
             </Pressable>
           )}
-
-          {/* ±5 / ±10 / ±30 조정 버튼 */}
-          <View style={styles.timeAdjustRow}>
-            {SHIFT_STEPS.map((step) => (
-              <Pressable
-                key={step}
-                onPress={() => changeTime(shiftReminderTime(reminderTime, step))}
-                style={({ pressed }) => [styles.adjBtn, pressed && styles.adjBtnPressed]}
-              >
-                <Text style={styles.adjBtnText}>{step > 0 ? `+${step}분` : `${step}분`}</Text>
-              </Pressable>
-            ))}
-          </View>
 
           {/* 즐겨찾기 시간 칩 */}
           <View style={styles.quickRow}>
@@ -183,7 +159,7 @@ export function NotificationSettingsScreen() {
 
         <View style={styles.notice}>
           <Text style={styles.noticeText}>
-            알림이 정상적으로 도착하려면 기기의 알림 권한이 허용되어 있어야 해요.
+            알림이 정상적으로 도착하려면 알림 권한이 허용되어 있어야 해요.
           </Text>
         </View>
       </ScrollView>
@@ -260,21 +236,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     textAlign: 'center',
   },
-  timeAdjustRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  adjBtn: {
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    borderColor: colors.border,
-    borderRadius: 10,
-    borderWidth: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 10,
-    minWidth: 52,
-  },
-  adjBtnPressed: { opacity: 0.8 },
-  adjBtnText: { color: colors.text, fontSize: 13, fontWeight: '700' },
-  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  quickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center', marginTop: 8 },
   quickChip: {
     backgroundColor: colors.background,
     borderColor: colors.border,

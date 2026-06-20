@@ -306,7 +306,14 @@ export function OnboardingScreen() {
         oneLiner: m.summary,
         philosophy: m.summary,
         idealFor: m.reason,
-        accentColor: m.id === 1 ? '#2D6A4F' : m.id === 2 ? '#C66B5A' : '#355CDE',
+        accentColor:
+          m.id === 1
+            ? '#2D6A4F'
+            : m.id === 2
+              ? '#C66B5A'
+              : m.id === 4
+                ? '#D9822B'
+                : '#355CDE',
         focusTags: [],
         experienceMatch: [],
         riskMatch: [],
@@ -317,7 +324,9 @@ export function OnboardingScreen() {
             ? ['가치투자 기초', '장기 복리 관점']
             : m.id === 2
               ? ['생활밀착형 분석', '성장주 감각']
-              : ['거시 흐름 해석', '자산 배분'],
+              : m.id === 4
+                ? ['추세·주도주 분석', '손절 규율과 리스크 관리']
+                : ['거시 흐름 해석', '자산 배분'],
         score: response.recommended_mentors.length - idx,
         reasons: [m.reason],
       }));
